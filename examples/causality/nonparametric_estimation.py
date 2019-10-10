@@ -2,6 +2,7 @@
 # https://github.com/akelleh/causality
 # for the purpose of testing its example on
 # Nonparametric Effects Estimation
+
 import numpy
 import pandas as pd
 from causality.estimation.adjustments import AdjustForDirectCauses
