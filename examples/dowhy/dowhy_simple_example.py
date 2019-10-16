@@ -37,7 +37,7 @@ model.view_model()
 
 from IPython.display import Image, display
 
-display(Image(filename="causal_model.png"))
+display(Image(filename="causal_model_simple_example.png"))
 
 # DoWhy philosophy: Keep identification and estimation separate
 # Identification can be achieved without access to the data, acccesing only the graph.
