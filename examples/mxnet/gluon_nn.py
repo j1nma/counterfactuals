@@ -89,7 +89,9 @@ class MixMLP(nn.Block):
 
 net = MixMLP()
 net.initialize()
-x = nd.random.uniform(shape=(2,2))
-net(x)
+x = nd.random.uniform(shape=(2, 2))
+h = net(x)
 
-print(net)
+print(h)
+
+# print(net)

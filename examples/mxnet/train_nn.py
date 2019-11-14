@@ -79,7 +79,8 @@ valid_data = gluon.data.DataLoader(
 
 # Define the model
 
-# We reimplement the same LeNet introduced before. One difference here is that we changed the weight initialization method to Xavier, which is a popular choice for deep convolutional neural networks.
+# We reimplement the same LeNet introduced before. One difference here is that we changed the weigh
+# initialization method to Xavier, which is a popular choice for deep convolutional neural networks.
 
 net = nn.Sequential()
 net.add(nn.Conv2D(channels=6, kernel_size=5, activation='relu'),
@@ -92,7 +93,10 @@ net.add(nn.Conv2D(channels=6, kernel_size=5, activation='relu'),
         nn.Dense(10))
 net.initialize(init=init.Xavier())
 
-# Besides the neural network, we need to define the loss function and optimization method for training. We will use standard softmax cross entropy loss for classification problems. It first performs softmax on the output to obtain the predicted probability, and then compares the label with the cross entropy.
+# Besides the neural network, we need to define the loss function and optimization method for training.
+# We will use standard softmax cross entropy loss for classification problems.
+# It first performs softmax on the output to obtain the predicted probability,
+# and then compares the label with the cross entropy.
 
 softmax_cross_entropy = gluon.loss.SoftmaxCrossEntropyLoss()
 
@@ -100,7 +104,8 @@ softmax_cross_entropy = gluon.loss.SoftmaxCrossEntropyLoss()
 trainer = gluon.Trainer(net.collect_params(), 'sgd', {'learning_rate': 0.1})
 
 
-# The trainer is created with all parameters (both weights and gradients) in net. Later on, we only need to call the step method to update its weights.
+# The trainer is created with all parameters (both weights and gradients) in net. Later on, we only need to call
+# the step method to update its weights.
 
 # Train
 # We create an auxiliary function to calculate the model accuracy.
