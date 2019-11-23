@@ -13,8 +13,8 @@ class Evaluator(object):
     def rmse_ite(self, y_treated_predicted, y_controlled_predicted):
         """ Root of the Mean Square Error of the Individualized Treatment Effect """
         """
-            - ypred1: predicted outcome with T = 1 for a population
-            - ypred0: predicted outcome with T = 0 or a population
+            - y_treated_predicted: predicted outcome with T = 1 for a population
+            - y_controlled_predicted: predicted outcome with T = 0 or a population
         """
         predicted_ite = np.zeros_like(self.true_ite)
         treated_indices, controlled_indices = np.where(self.t == 1)[0], np.where(self.t == 0)[0]
@@ -63,6 +63,10 @@ class Evaluator(object):
             - y_treated_predicted: predicted outcome with T = 1 for a population
             - y_controlled_predicted: predicted outcome with T = 0 or a population
         """
+
+        y_treated_predicted = np.array([x.asscalar() for x in y_treated_predicted])
+        y_controlled_predicted = np.array([x.asscalar() for x in y_controlled_predicted])
+        
         y1 = y_treated_predicted
         y0 = y_controlled_predicted
         y_factual_predicted = self.t * y1 + (1 - self.t) * y0

@@ -6,180 +6,290 @@
 # arXiv:1605.03661v3 [stat.ML] 6 Jun 2018
 
 import time
+import warnings
 
 import mxnet as mx
 import numpy as np
 from mxnet import gluon, autograd, init
-from mxnet.gluon import data, nn
-from scipy import stats
+from mxnet.gluon import nn
+from scipy.stats import sem
 
-from counterfactuals.effects import get_errors
-from counterfactuals.utilities import load_data
-
-gpu = False
-ctx = mx.gpu() if gpu else mx.cpu()
-
-start = time.time()
-
-# mx.random.seed(int(round(start * 1000)), ctx)
-mx.random.seed(1, ctx)
-np.random.seed(1)
-
-# Train Hyperparameters
-input_size = 26
-hidden_size = 25
-batch_size = 100  # mini-batch size
-learning_rate = 0.001
-l2_weight_decay_lambda = 0.001
-train_experiments = 100
-epochs = 200
+from counterfactuals.evaluation import Evaluator
+from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
+    predict_treated_and_controlled
 
 
-# Feed Forward Neural Network Model (4 hidden layers)
-class NN4Net(nn.Block):
-    def __init__(self, hidden_nodes_size):
-        super(NN4Net, self).__init__()
-        with self.name_scope():
-            self.fc1 = nn.Dense(hidden_nodes_size, activation='relu')
-            self.fc2 = nn.Dense(hidden_nodes_size, activation='relu')
-            self.fc3 = nn.Dense(hidden_nodes_size, activation='relu')
-            self.fc4 = nn.Dense(hidden_nodes_size, activation='relu')
-            self.fc5 = nn.Dense(1)
-
-    def forward(self, input):
-        return self.fc5(self.fc4(self.fc3(self.fc2(self.fc1(input)))))
+def ff4_relu_architecture(hidden_size):
+    net = nn.HybridSequential()
+    net.add(nn.Dense(hidden_size, activation='relu'),
+            nn.Dense(hidden_size, activation='relu'),
+            nn.Dense(hidden_size, activation='relu'),
+            nn.Dense(hidden_size, activation='relu'),
+            nn.Dense(1, activation='relu')),
+    return net
 
 
-# Load datasets
-train_dataset = load_data('../data/ihdp_npci_1-100.train.npz')
-test_dataset = load_data('../data/ihdp_npci_1-100.test.npz')
+def run(args):
+    # Hyperparameters
+    epochs = int(args.epochs)
+    learning_rate = float(args.learning_rate)
+    wd = float(args.weight_decay)
+    hidden_size = int(args.hidden_size)
+    train_experiments = int(args.train_experiments)
+    learning_rate_factor = float(args.learning_rate_factor)
+    learning_rate_steps = int(args.learning_rate_steps)  # changes the learning rate for every n updates.
 
-# Instantiate net
-net = NN4Net(hidden_size)
-net.initialize(init=init.Xavier(), ctx=ctx)  # TODO review Xavier
+    # Set GPUs/CPUs
+    num_gpus = mx.context.num_gpus()
+    num_workers = int(args.num_workers)  # replace num_workers with the number of cores
+    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    batch_size_per_unit = int(args.batch_size_per_unit)  # mini-batch size
+    batch_size = batch_size_per_unit * max(num_gpus, 1)
 
-# Loss and Optimizer
-criterion = gluon.loss.L2Loss()
-optimizer = gluon.Trainer(net.collect_params(),
-                          'RMSProp',
-                          {'learning_rate': learning_rate, 'wd': l2_weight_decay_lambda})
+    # Set seeds
+    for c in ctx:
+        mx.random.seed(int(args.seed), c)
+    np.random.seed(int(args.seed))
 
-# Train
-for experiment in range(train_experiments):
+    # Feed Forward Neural Network Model (4 hidden layers)
+    net = ff4_relu_architecture(hidden_size)
 
-    # Create training dataset
-    x = train_dataset['x'][:, :, experiment]
-    t = np.reshape(train_dataset['t'][:, experiment], (-1, 1))
-    yf = train_dataset['yf'][:, experiment]
-    ycf = train_dataset['ycf'][:, experiment]
-    factual_features = np.hstack((x, t))
-    train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(factual_features), mx.nd.array(yf))
+    # Load datasets
+    train_dataset = load_data('../' + args.data_dir + args.data_train)
 
-    # Train Data Loaders
-    train_factual_loader = data.DataLoader(train_factual_dataset, batch_size, shuffle=True)
+    # Instantiate net
+    net.initialize(init=init.Xavier(), ctx=ctx)
+    net.hybridize()  # hybridize for better performance
 
-    # Train the Model
-    for epoch in range(epochs):
-        for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
-            batch_f_features = batch_f_features.reshape((-1, input_size))
-            batch_f_features, batch_yf = batch_f_features.as_in_context(ctx), batch_yf.as_in_context(ctx)
+    # Metric, Loss and Optimizer
+    rmse_metric = mx.metric.RMSE()
+    l2_loss = gluon.loss.L2Loss()
+    scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
+                                                base_lr=learning_rate)
+    optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
+    trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
 
-            # Forward, Backward and Optimize
-            with autograd.record():
-                outputs = net(batch_f_features)
-                loss = criterion(outputs, batch_yf)
-            loss.backward()
-            optimizer.step(batch_size)
+    # Initialize train score results
+    train_scores = np.zeros((train_experiments, 3))
 
-            if (i + 1) % 2 == 0:
-                print('Train Experiment %d, Epoch [%d/%d], Step [%d/%d], RMSE Loss: %.4f'
-                      % (experiment, epoch + 1, epochs, i + 1,
-                         len(train_factual_dataset) // batch_size,  # // is the floor division operator
-                         loss.sum().asscalar() ** 0.5))
+    # Initialize test score results
+    test_scores = np.zeros((train_experiments, 3))
 
-# Test hyperparameters
-test_experiments = test_dataset['x'].shape[2]
-test_batch_size = test_dataset['x'].shape[0]  # batch is complete size of testing data
+    # Train experiments means and stds
+    means = np.array([])
+    stds = np.array([])
 
-# Result arrays
-rmse_ite_arr = np.array([])
-abs_ate_arr = np.array([])
-pehe_arr = np.array([])
+    # Train
+    for train_experiment in range(train_experiments):
 
-# Test
-for test_experiment in range(test_experiments):
+        # Create training dataset
+        x = train_dataset['x'][:, :, train_experiment]
+        t = np.reshape(train_dataset['t'][:, train_experiment], (-1, 1))
+        yf = train_dataset['yf'][:, train_experiment]
+        ycf = train_dataset['ycf'][:, train_experiment]
+        mu0 = train_dataset['mu0'][:, train_experiment]
+        mu1 = train_dataset['mu1'][:, train_experiment]
 
-    # Create testing dataset
-    x = test_dataset['x'][:, :, test_experiment]
-    t = np.reshape(test_dataset['t'][:, test_experiment], (-1, 1))
-    yf = test_dataset['yf'][:, test_experiment]
-    ycf = test_dataset['ycf'][:, test_experiment]
-    mu0 = test_dataset['mu0'][:, test_experiment]
-    mu1 = test_dataset['mu1'][:, test_experiment]
+        train, valid, test = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
 
-    factual_features = np.hstack((x, t))
-    counterfactual_features = np.hstack((x, np.ones(len(t)).reshape(len(t), -1) - t))
+        # With-in sample
+        train_evaluator = Evaluator(np.concatenate([train['t'], valid['t']]),
+                                    np.concatenate([train['yf'], valid['yf']]),
+                                    y_cf=np.concatenate([train['ycf'], valid['ycf']], axis=0),
+                                    mu0=np.concatenate([train['mu0'], valid['mu0']], axis=0),
+                                    mu1=np.concatenate([train['mu1'], valid['mu1']], axis=0))
+        test_evaluator = Evaluator(test['t'], test['yf'], test['ycf'], test['mu0'], test['mu1'])
 
-    test_factual_dataset = gluon.data.ArrayDataset(
-        mx.nd.array(factual_features),
-        mx.nd.array(counterfactual_features),
-        mx.nd.array(yf),
-        mx.nd.array(ycf),
-        mx.nd.array(mu0),
-        mx.nd.array(mu1))
+        # Normalize yf
+        yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
+        train['yf'] = (train['yf'] - yf_m) / yf_std
+        valid['yf'] = (valid['yf'] - yf_m) / yf_std
+        test['yf'] = (test['yf'] - yf_m) / yf_std
 
-    # Test Data Loader
-    test_factual_loader = data.DataLoader(test_factual_dataset, test_batch_size, shuffle=False)
+        # Save mean and std
+        means = np.append(means, yf_m)
+        stds = np.append(stds, yf_std)
 
-    # Test the model in the factual and counterfactual regimes
-    y_treated_predicted = np.array([])
-    y_controlled_predicted = np.array([])
-    y_treated_true = np.array([])
-    y_controlled_true = np.array([])
-    for batch_f_features, batch_cf_features, batch_yf, batch_ycf, batch_mu0, batch_mu1 in test_factual_loader:
-        batch_f_features = batch_f_features.reshape((-1, input_size))
-        batch_cf_features = batch_cf_features.reshape((-1, input_size))
+        # Train dataset
+        factual_features = np.hstack((train['x'], train['t']))
+        train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(factual_features), mx.nd.array(train['yf']))
 
-        batch_f_features, batch_cf_features, batch_yf, batch_ycf, batch_mu0, batch_mu1 = \
-            batch_f_features.as_in_context(ctx), \
-            batch_cf_features.as_in_context(ctx), \
-            batch_yf.as_in_context(ctx), \
-            batch_ycf.as_in_context(ctx), \
-            batch_mu0.as_in_context(ctx), \
-            batch_mu1.as_in_context(ctx)
+        # With-in sample
+        train_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(np.concatenate([train['x'], valid['x']])))
 
-        factual_predict = net(batch_f_features)
-        counterfactual_predict = net(batch_cf_features)
+        # Valid dataset
+        valid_factual_features = np.hstack((valid['x'], valid['t']))
+        valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid_factual_features), mx.nd.array(valid['yf']))
 
-        for idx, feature_arr in enumerate(batch_f_features):
-            if feature_arr[-1].asscalar() == 1:
-                # Factual regime
-                y_treated_predicted = np.append(y_treated_predicted, factual_predict.asnumpy()[idx])
-                y_treated_true = np.append(y_treated_true, batch_mu1.asnumpy()[idx])
+        # Test dataset
+        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(test['x']))
 
-                # Counterfactual regime
-                y_controlled_predicted = np.append(y_controlled_predicted, counterfactual_predict.asnumpy()[idx])
-                y_controlled_true = np.append(y_controlled_true, batch_mu0.asnumpy()[idx])
-            else:
-                # Factual regime
-                y_controlled_predicted = np.append(y_controlled_predicted, factual_predict.asnumpy()[idx])
-                y_controlled_true = np.append(y_controlled_true, batch_mu0.asnumpy()[idx])
+        # Train DataLoader
+        train_factual_loader = gluon.data.DataLoader(train_factual_dataset, batch_size=batch_size, shuffle=True,
+                                                     num_workers=num_workers)
+        train_rmse_ite_loader = gluon.data.DataLoader(train_rmse_ite_dataset, batch_size=batch_size,
+                                                      shuffle=False,
+                                                      num_workers=num_workers)
 
-                # Counterfactual regime
-                y_treated_predicted = np.append(y_treated_predicted, counterfactual_predict.asnumpy()[idx])
-                y_treated_true = np.append(y_treated_true, batch_mu1.asnumpy()[idx])
+        # Valid DataLoader
+        valid_factual_loader = gluon.data.DataLoader(valid_factual_dataset, batch_size=batch_size, shuffle=False,
+                                                     num_workers=num_workers)
 
-    rmse_ite, abs_ate, pehe = get_errors(t, yf, y_treated_predicted, y_controlled_predicted, y_treated_true,
-                                         y_controlled_true)
-    rmse_ite_arr = np.append(rmse_ite_arr, rmse_ite)
-    abs_ate_arr = np.append(abs_ate_arr, abs_ate)
-    pehe_arr = np.append(pehe_arr, pehe)
+        # Test DataLoader
+        test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
+                                                     shuffle=False,
+                                                     num_workers=num_workers)
 
-    print('Test experiment {:d}, RMSE ITE: {:.1f}, abs ATE: {:.1f}, PEHE: {:.1f}' \
-          ''.format(test_experiment, rmse_ite, abs_ate, pehe))
+        num_batch = len(train_factual_loader)
 
-print('{:d} test experiments: RMSE ITE: {:.1f} ± {:.1f}, abs ATE: {:.1f} ± {:.1f}, PEHE: {:.1f} ± {:.1f}' \
-      ''.format(test_experiments,
-                np.mean(rmse_ite_arr), stats.sem(rmse_ite_arr, ddof=0),
-                np.mean(abs_ate_arr), stats.sem(abs_ate_arr, ddof=0),
-                np.mean(pehe_arr), stats.sem(pehe_arr, ddof=0)))
+        # Train model
+        for epoch in range(1, epochs + 1):  # start with epoch 1 for easier learning rate calculation
+
+            start = time.time()
+            train_loss = 0
+            rmse_metric.reset()
+
+            for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
+                # Get data and labels into slices and copy each slice into a context.
+                batch_f_features = gluon.utils.split_and_load(batch_f_features, ctx_list=ctx, even_split=False)
+                batch_yf = gluon.utils.split_and_load(batch_yf, ctx_list=ctx, even_split=False)
+
+                # Forward
+                with autograd.record():
+                    outputs = [net(x) for x in batch_f_features]
+                    loss = [l2_loss(yhat, y) for yhat, y in zip(outputs, batch_yf)]
+
+                # Backward
+                for l in loss:
+                    l.backward()
+
+                # Optimize
+                trainer.step(batch_size)
+
+                train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
+                rmse_metric.update(batch_yf, outputs)
+
+            _, train_rmse_factual = rmse_metric.get()
+            train_loss /= num_batch
+            _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
+
+            if epoch % 10 == 0:
+                print(
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
+                    '%.3E | time: %.1f' %
+                    (epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate,
+                     time.time() - start))
+
+        # Test model
+        y_t0, y_t1 = predict_treated_and_controlled(net, train_rmse_ite_loader, ctx)
+        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
+        train_score = train_evaluator.get_metrics(y_t1, y_t0)
+        train_scores[train_experiment, :] = train_score
+        train_rmse_f_cf = train_evaluator.get_rmse_f_cf(y_t1, y_t0)
+
+        y_t0, y_t1 = predict_treated_and_controlled(net, test_rmse_ite_loader, ctx)
+        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
+        test_score = test_evaluator.get_metrics(y_t1, y_t0)
+        test_scores[train_experiment, :] = test_score
+        test_rmse_f_cf = test_evaluator.get_rmse_f_cf(y_t1, y_t0)
+
+        print('[Train Replication {}/{}]:, train RMSE Factual: {:0.3f}, train RMSE Counterfactual: {:0.3f},' \
+              ' train ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+              ' test ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f},' \
+              ' test RMSE Factual: {:0.3f}, test RMSE Counterfactual: {:0.3f}'.format(train_experiment + 1,
+                                                                                      train_experiments,
+                                                                                      train_rmse_f_cf[0],
+                                                                                      train_rmse_f_cf[1],
+                                                                                      train_score[0], train_score[1],
+                                                                                      train_score[2],
+                                                                                      test_score[0], test_score[1],
+                                                                                      test_score[2], test_rmse_f_cf[0],
+                                                                                      test_rmse_f_cf[1]))
+
+    # Save means and stds NDArray values for inference
+    mx.nd.save('means_stds_ihdp.nd', {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
+
+    # Export trained model
+    net.export("ihdp-predictions", epoch=epochs)
+
+    print('\n{} architecture total scores:'.format(args.architecture.upper()))
+    means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
+    print('train ITE: {:.3f}+-{:.3f}, train ATE: {:.3f}+-{:.3f}, train PEHE: {:.3f}+-{:.3f}' \
+          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+
+    means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
+    print('test ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
+          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+
+
+def run_test(args):
+    # Set GPUs/CPUs
+    num_gpus = mx.context.num_gpus()
+    num_workers = int(args.num_workers)  # replace num_workers with the number of cores
+    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    batch_size_per_unit = int(args.batch_size_per_unit)  # mini-batch size
+    batch_size = batch_size_per_unit * max(num_gpus, 1)
+
+    # Load test dataset
+    test_dataset = load_data('../' + args.data_dir + args.data_test)
+
+    # Load training means and stds
+    train_means_stds = mx.nd.load('means_stds_ihdp.nd')
+    train_means = train_means_stds['means']
+    train_stds = train_means_stds['stds']
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        net = gluon.nn.SymbolBlock.imports("ihdp-predictions-symbol.json", ['data'], "ihdp-predictions-0100.params",
+                                           ctx=ctx)
+
+    # Calculate number of test experiments
+    test_experiments = np.min([test_dataset['x'].shape[2], len(train_means)])
+
+    # Initialize test score results
+    test_scores = np.zeros((test_experiments, 3))
+
+    # Test model
+    for test_experiment in range(test_experiments):
+        # Create testing dataset
+        x = test_dataset['x'][:, :, test_experiment]
+        t = np.reshape(test_dataset['t'][:, test_experiment], (-1, 1))
+        yf = test_dataset['yf'][:, test_experiment]
+        ycf = test_dataset['ycf'][:, test_experiment]
+        mu0 = test_dataset['mu0'][:, test_experiment]
+        mu1 = test_dataset['mu1'][:, test_experiment]
+
+        # With-in sample
+        test_evaluator = Evaluator(t, yf, ycf, mu0, mu1)
+
+        # Retrieve training mean and std
+        train_yf_m, train_yf_std = train_means[test_experiment].asnumpy(), train_stds[test_experiment].asnumpy()
+
+        # Test dataset
+        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(x))
+
+        # Test DataLoader
+        test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
+                                                     shuffle=False,
+                                                     num_workers=num_workers)
+
+        # Test model
+        y_t0, y_t1 = predict_treated_and_controlled(net, test_rmse_ite_loader, ctx)
+        y_t0, y_t1 = y_t0 * train_yf_std + train_yf_m, y_t1 * train_yf_std + train_yf_m
+        test_score = test_evaluator.get_metrics(y_t1, y_t0)
+        test_scores[test_experiment, :] = test_score
+        test_rmse_f_cf = test_evaluator.get_rmse_f_cf(y_t1, y_t0)
+
+        print(
+            '[Test Replication {}/{}]: ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f},' \
+            ' RMSE Factual: {:0.3f}, RMSE Counterfactual: {:0.3f}'.format(test_experiment + 1,
+                                                                          test_experiments,
+                                                                          test_score[0],
+                                                                          test_score[1],
+                                                                          test_score[2],
+                                                                          test_rmse_f_cf[0],
+                                                                          test_rmse_f_cf[1]))
+
+    means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
+    print('test ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
+          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
