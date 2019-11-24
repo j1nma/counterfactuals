@@ -66,7 +66,7 @@ for combination in combinations:
     args.learning_rate_steps = combination['learning_rate_steps']
 
     # Create results directory
-    combination_outdir = outdir + str(combination['epochs']) + '-' + str(combination['learning_rate_steps'])
+    combination_outdir = outdir + str(combination['epochs']) + '-' + str(combination['learning_rate_steps']) + '/'
     os.mkdir(combination_outdir)
 
     result = nn4.run(args, combination_outdir)
