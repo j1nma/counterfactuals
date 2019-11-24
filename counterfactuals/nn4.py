@@ -4,7 +4,6 @@
 # Referred to as NN-4 from Johansson et al. paper:
 # "Learning Representations for Counterfactual Inference"
 # arXiv:1605.03661v3 [stat.ML] 6 Jun 2018
-
 import time
 import warnings
 
@@ -29,7 +28,7 @@ def ff4_relu_architecture(hidden_size):
     return net
 
 
-def run(args):
+def run(args, outdir):
     # Hyperparameters
     epochs = int(args.epochs)
     learning_rate = float(args.learning_rate)
@@ -71,6 +70,9 @@ def run(args):
 
     # Initialize train score results
     train_scores = np.zeros((train_experiments, 3))
+
+    # Initialize train experiment durations
+    train_durations = np.zeros((train_experiments, 1))
 
     # Initialize test score results
     test_scores = np.zeros((train_experiments, 3))
@@ -142,6 +144,8 @@ def run(args):
 
         num_batch = len(train_factual_loader)
 
+        train_start = time.time()
+
         # Train model
         for epoch in range(1, epochs + 1):  # start with epoch 1 for easier learning rate calculation
 
@@ -180,6 +184,8 @@ def run(args):
                     (epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate,
                      time.time() - start))
 
+        train_durations[train_experiment, :] = time.time() - train_start
+
         # Test model
         y_t0, y_t1 = predict_treated_and_controlled(net, train_rmse_ite_loader, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
@@ -193,9 +199,9 @@ def run(args):
         test_scores[train_experiment, :] = test_score
         test_rmse_f_cf = test_evaluator.get_rmse_f_cf(y_t1, y_t0)
 
-        print('[Train Replication {}/{}]:, train RMSE Factual: {:0.3f}, train RMSE Counterfactual: {:0.3f},' \
-              ' train ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' test ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f},' \
+        print('[Train Replication {}/{}]: train RMSE Factual: {:0.3f}, train RMSE Counterfactual: {:0.3f},' \
+              ' train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f},' \
               ' test RMSE Factual: {:0.3f}, test RMSE Counterfactual: {:0.3f}'.format(train_experiment + 1,
                                                                                       train_experiments,
                                                                                       train_rmse_f_cf[0],
@@ -207,19 +213,26 @@ def run(args):
                                                                                       test_rmse_f_cf[1]))
 
     # Save means and stds NDArray values for inference
-    mx.nd.save('means_stds_ihdp.nd', {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
+    mx.nd.save(outdir + 'nn4_means_stds_ihdp_' + str(train_experiments) + '_.nd',
+               {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained model
-    net.export("ihdp-predictions", epoch=epochs)
+    net.export(outdir + "nn4-ihdp-predictions-" + str(train_experiments), epoch=epochs)
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    print('train ITE: {:.3f}+-{:.3f}, train ATE: {:.3f}+-{:.3f}, train PEHE: {:.3f}+-{:.3f}' \
+    print('train RMSE ITE: {:.3f}+-{:.3f}, train ATE: {:.3f}+-{:.3f}, train PEHE: {:.3f}+-{:.3f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
+    print('test RMSE ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+
+    means[0] = float("{0:.2f}".format(means[0]))
+    means[1] = float("{0:.2f}".format(means[1]))
+    means[2] = float("{0:.2f}".format(means[2]))
+    mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
+    return {"ite": means[0], "ate": means[1], "pehe": means[2], "mean_duration": mean_duration}
 
 
 def run_test(args):
@@ -234,13 +247,13 @@ def run_test(args):
     test_dataset = load_data('../' + args.data_dir + args.data_test)
 
     # Load training means and stds
-    train_means_stds = mx.nd.load('means_stds_ihdp.nd')
+    train_means_stds = mx.nd.load(args.means_stds)
     train_means = train_means_stds['means']
     train_stds = train_means_stds['stds']
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        net = gluon.nn.SymbolBlock.imports("ihdp-predictions-symbol.json", ['data'], "ihdp-predictions-0100.params",
+        net = gluon.nn.SymbolBlock.imports(args.symbol, ['data'], args.params,
                                            ctx=ctx)
 
     # Calculate number of test experiments
@@ -281,7 +294,7 @@ def run_test(args):
         test_rmse_f_cf = test_evaluator.get_rmse_f_cf(y_t1, y_t0)
 
         print(
-            '[Test Replication {}/{}]: ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f},' \
+            '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f},' \
             ' RMSE Factual: {:0.3f}, RMSE Counterfactual: {:0.3f}'.format(test_experiment + 1,
                                                                           test_experiments,
                                                                           test_score[0],
@@ -291,5 +304,5 @@ def run_test(args):
                                                                           test_rmse_f_cf[1]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
+    print('test RMSE ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
