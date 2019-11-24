@@ -24,7 +24,7 @@ def ff4_relu_architecture(hidden_size):
             nn.Dense(hidden_size, activation='relu'),
             nn.Dense(hidden_size, activation='relu'),
             nn.Dense(hidden_size, activation='relu'),
-            nn.Dense(1, activation='relu')),
+            nn.Dense(1)),
     return net
 
 
@@ -197,20 +197,17 @@ def run(args, outdir):
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
-        test_rmse_f_cf = test_evaluator.get_rmse_f_cf(y_t1, y_t0)
 
         print('[Train Replication {}/{}]: train RMSE Factual: {:0.3f}, train RMSE Counterfactual: {:0.3f},' \
               ' train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f},' \
-              ' test RMSE Factual: {:0.3f}, test RMSE Counterfactual: {:0.3f}'.format(train_experiment + 1,
-                                                                                      train_experiments,
-                                                                                      train_rmse_f_cf[0],
-                                                                                      train_rmse_f_cf[1],
-                                                                                      train_score[0], train_score[1],
-                                                                                      train_score[2],
-                                                                                      test_score[0], test_score[1],
-                                                                                      test_score[2], test_rmse_f_cf[0],
-                                                                                      test_rmse_f_cf[1]))
+              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f},'.format(train_experiment + 1,
+                                                                                       train_experiments,
+                                                                                       train_rmse_f_cf[0],
+                                                                                       train_rmse_f_cf[1],
+                                                                                       train_score[0], train_score[1],
+                                                                                       train_score[2],
+                                                                                       test_score[0], test_score[1],
+                                                                                       test_score[2]))
 
     # Save means and stds NDArray values for inference
     mx.nd.save(outdir + 'nn4_means_stds_ihdp_' + str(train_experiments) + '_.nd',
@@ -221,11 +218,11 @@ def run(args, outdir):
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    print('train RMSE ITE: {:.3f}+-{:.3f}, train ATE: {:.3f}+-{:.3f}, train PEHE: {:.3f}+-{:.3f}' \
+    print('train RMSE ITE: {:.3f}±{:.3f}, train ATE: {:.3f}±{:.3f}, train PEHE: {:.3f}±{:.3f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test RMSE ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
+    print('test RMSE ITE: {:.3f}±{:.3f}, test ATE: {:.3f}±{:.3f}, test PEHE: {:.3f}±{:.3f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
     means[0] = float("{0:.2f}".format(means[0]))
@@ -291,18 +288,14 @@ def run_test(args):
         y_t0, y_t1 = y_t0 * train_yf_std + train_yf_m, y_t1 * train_yf_std + train_yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[test_experiment, :] = test_score
-        test_rmse_f_cf = test_evaluator.get_rmse_f_cf(y_t1, y_t0)
 
         print(
-            '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f},' \
-            ' RMSE Factual: {:0.3f}, RMSE Counterfactual: {:0.3f}'.format(test_experiment + 1,
-                                                                          test_experiments,
-                                                                          test_score[0],
-                                                                          test_score[1],
-                                                                          test_score[2],
-                                                                          test_rmse_f_cf[0],
-                                                                          test_rmse_f_cf[1]))
+            '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f},'.format(test_experiment + 1,
+                                                                                               test_experiments,
+                                                                                               test_score[0],
+                                                                                               test_score[1],
+                                                                                               test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test RMSE ITE: {:.3f}+-{:.3f}, test ATE: {:.3f}+-{:.3f}, test PEHE: {:.3f}+-{:.3f}' \
+    print('test RMSE ITE: {:.3f}±{:.3f}, test ATE: {:.3f}±{:.3f}, test PEHE: {:.3f}±{:.3f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
