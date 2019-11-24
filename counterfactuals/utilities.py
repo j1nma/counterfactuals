@@ -1,3 +1,5 @@
+import argparse
+
 import mxnet as mx
 import numpy as np
 from mxnet import gluon, autograd
@@ -92,3 +94,122 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
         y_t1 = np.append(y_t1, t1_treated_predicted)
 
     return y_t0, y_t1
+
+
+def get_args_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-e",
+        "--epochs",
+        default=100,
+        help="Number of epochs per experiment."
+    )
+    parser.add_argument(
+        "-lr",
+        "--learning_rate",
+        default=0.001,
+        help="Initial learning rate."
+    )
+    parser.add_argument(
+        "-wd",
+        "--weight_decay",
+        default=0.0001,
+        help="L2 weight decay lambda."
+    )
+    parser.add_argument(
+        "-is",
+        "--input_size",
+        default=26,
+        help="Neural network input size."
+    )
+    parser.add_argument(
+        "-hs",
+        "--hidden_size",
+        default=25,
+        help="Number of hidden nodes per layer."
+    )
+    parser.add_argument(
+        "-te",
+        "--train_experiments",
+        default=10,
+        help="Number of train experiments/replications from train data."
+    )
+    parser.add_argument(
+        "-lf",
+        "--learning_rate_factor",
+        default=0.96
+    )
+    parser.add_argument(
+        "-ls",
+        "--learning_rate_steps",
+        default=2000,
+        help="Changes the learning rate for every given number of updates."
+    )
+    parser.add_argument(
+        "-w",
+        "--num_workers",
+        default=2,
+        help="Number of cores."
+    )
+    parser.add_argument(
+        "-bs",
+        "--batch_size_per_unit",
+        default=32,
+        help="Mini-batch size per processing unit."
+    )
+    parser.add_argument(
+        "-s",
+        "--seed",
+        default=1,
+        help="Random seed."
+    )
+    parser.add_argument(
+        "-od",
+        "--outdir",
+        default='results/ihdp'
+    )
+    parser.add_argument(
+        "-dd",
+        "--data_dir",
+        default='data/'
+    )
+    parser.add_argument(
+        "-td",
+        "--data_train",
+        default='ihdp_npci_1-100.train.npz',
+        help="Train data npz file."
+    )
+    parser.add_argument(
+        "-sd",
+        "--data_test",
+        default='ihdp_npci_1-100.test.npz',
+        help="Test data npz file."
+    )
+    parser.add_argument(
+        "-a",
+        "--architecture",
+        default='nn4',
+        choices=['nn4', 'bnn'],
+        help="Neural network architecture to use."
+    )
+    parser.add_argument(
+        "-ms",
+        "--means_stds",
+        default='ihdp_means_stds.nd',
+        help="Saved means and stds from training. Inside an outdir folder."
+    )
+    parser.add_argument(
+        "-sy",
+        "--symbol",
+        default='ihdp-predictions-symbol.json',
+        help="Saved symbol json file from training. Inside an outdir folder."
+    )
+    parser.add_argument(
+        "-ps",
+        "--params",
+        default='ihdp-predictions-0100.params',
+        help="Parameter dictionary for arguments and auxiliary states of outputs that are not inputs."
+             "File from training. Inside an outdir folder."
+    )
+
+    return parser
