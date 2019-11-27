@@ -96,8 +96,31 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
+def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
+    """ Predict treated and controlled outcomes with CNN architecture modifications. """
+
+    y_t0 = np.array([])
+    y_t1 = np.array([])
+    for i, (x) in enumerate(test_rmse_ite_loader):
+        x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
+
+        t0_features = mx.nd.concat(x[0].reshape(len(x[0]), x[0].shape[2], 1), mx.nd.zeros((len(x[0]), 1, 1)))
+        t1_features = mx.nd.concat(x[0].reshape(len(x[0]), x[0].shape[2], 1), mx.nd.ones((len(x[0]), 1, 1)))
+
+        t0_features = t0_features.reshape(len(x[0]), 1, x[0].shape[2])
+        t1_features = t1_features.reshape(len(x[0]), 1, x[0].shape[2])
+
+        t0_controlled_predicted = net(t0_features)
+        t1_treated_predicted = net(t1_features)
+
+        y_t0 = np.append(y_t0, t0_controlled_predicted)
+        y_t1 = np.append(y_t1, t1_treated_predicted)
+
+    return y_t0, y_t1
+
+
 def get_args_parser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
     parser.add_argument(
         "-e",
         "--epochs",
@@ -189,7 +212,7 @@ def get_args_parser():
         "-a",
         "--architecture",
         default='nn4',
-        choices=['nn4', 'bnn'],
+        choices=['nn4', 'cnn'],
         help="Neural network architecture to use."
     )
     parser.add_argument(
