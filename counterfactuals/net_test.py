@@ -7,8 +7,8 @@ from counterfactuals import nn4
 from counterfactuals.utilities import get_args_parser
 
 
-def net_test():
-    args = get_args_parser().parse_args()
+def net_test(config_file=sys.argv[1]):
+    args = get_args_parser().parse_args(['@' + config_file])
 
     try:
 
@@ -21,7 +21,7 @@ def net_test():
 
         # Create results directory
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        outdir = args.outdir + '/' + 'test-' + args.architecture + '-ihdp-predictions' + timestamp + '/'
+        outdir = args.outdir + '/' + 'test-' + args.architecture + '-ihdp-predictions-' + timestamp + '/'
         os.mkdir(outdir)
 
         with open(outdir + 'error.txt', 'w') as error_file:

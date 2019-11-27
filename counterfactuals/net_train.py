@@ -3,22 +3,24 @@ import os
 import sys
 import traceback
 
-from counterfactuals import nn4
+from counterfactuals import nn4, cnn
 from counterfactuals.utilities import get_args_parser
 
 
-def net_train():
-    args = get_args_parser().parse_args()
+def net_train(config_file):
+    args = get_args_parser().parse_args(['@' + config_file])
 
     # Create results directory
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    outdir = args.outdir + '/' + args.architecture + '-ihdp-predictions' + timestamp + '/'
+    outdir = args.outdir + '/' + args.architecture + '-ihdp-predictions-' + timestamp + '/'
     os.mkdir(outdir)
 
     try:
 
         if args.architecture == 'nn4':
             return nn4.run(args, outdir)
+        elif args.architecture == 'cnn':
+            return cnn.run(args, outdir)
         else:
             return "Architecture not found."
 
@@ -29,4 +31,4 @@ def net_train():
 
 
 if __name__ == "__main__":
-    net_train()
+    net_train(config_file=sys.argv[1])
