@@ -1,93 +1,88 @@
 import datetime
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import ParameterGrid
 
-from counterfactuals import nn4
+from counterfactuals import nn4, cnn
 from counterfactuals.net_train import get_args_parser
 
-num_workers = 2
-seed = 1
-outdir = 'results/ihdp/gridsearch/'
-data_dir = 'data/'
-data_train = 'ihdp_npci_1-100.train.npz'
-data_test = 'ihdp_npci_1-100.test.npz'
 
-architecture = 'nn4'
-epochs = 100
-learning_rate = 0.001
-weight_decay = 0.0001  # l2_weight_decay_lambda
-input_size = 26  # 25 features + 1 treatment
-hidden_size = 25
-train_experiments = 100
-learning_rate_factor = 0.96
-learning_rate_steps = 2000  # changes the learning rate for every n updates
-batch_size = batch_size_per_unit = 32  # mini-batch size
+def gridsearch(config_file):
+    # Parse arguments
+    args = get_args_parser().parse_args(['@' + config_file])
+    outdir = args.outdir
+    architecture = args.architecture
 
-# Grid search parameters
-epochs_range = np.linspace(200, 300, num=2, dtype='int')
-learning_rate_steps_range = np.linspace(2000, 3000, num=2, dtype='int')
+    # (1) Grid search hyperparameters
+    learning_rate_factor_range = np.linspace(0.95, 0.99, num=4, dtype='float')
 
-param_grid = {
-    'epochs': epochs_range,
-    'learning_rate_steps': learning_rate_steps_range,
-}
-combinations = list(ParameterGrid(param_grid))
+    # (2) Construct combinations
+    param_grid = {
+        'learning_rate_factor': learning_rate_factor_range,
+    }
+    combinations = list(ParameterGrid(param_grid))
 
-epochs_list = []
-learning_rate_steps_list = []
+    # (3) Initialize hyperparameters list
+    learning_rate_factor_list = []
 
-rmse_ite_list = []
-ate_list = []
-pehe_list = []
-mean_duration_list = []
+    rmse_ite_list = []
+    ate_list = []
+    pehe_list = []
+    mean_duration_list = []
 
-outdir = outdir + architecture + '/'
-my_file = Path(outdir)
-if not my_file.is_dir():
+    outdir = outdir + architecture + '/'
+    my_file = Path(outdir)
+    if not my_file.is_dir():
+        os.mkdir(outdir)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    outdir = outdir + timestamp + '/'
     os.mkdir(outdir)
-timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-outdir = outdir + timestamp + '/'
-os.mkdir(outdir)
 
-i = 0
-for combination in combinations:
-    print('Evaluating ' + str(i + 1) + ' out of ' + str(len(combinations)) + ' combinations...')
+    i = 0
 
-    args = get_args_parser().parse_args()
+    for combination in combinations:
+        print('Evaluating ' + str(i + 1) + ' out of ' + str(len(combinations)) + ' combinations...')
 
-    args.train_experiments = train_experiments
-    args.batch_size_per_unit = batch_size
+        # (4) Overwrite hyperparameters into args
+        args.learning_rate_factor = combination['learning_rate_factor']
 
-    args.epochs = combination['epochs']
-    args.learning_rate_steps = combination['learning_rate_steps']
+        # (5) Create results directory with hyperparameters
+        combination_outdir = outdir + 'lrf-' + str(combination['learning_rate_factor']) + '/'
+        os.mkdir(combination_outdir)
 
-    # Create results directory
-    combination_outdir = outdir + str(combination['epochs']) + '-' + str(combination['learning_rate_steps']) + '/'
-    os.mkdir(combination_outdir)
+        if args.architecture == 'nn4':
+            result = nn4.run(args, combination_outdir)
+        elif args.architecture == 'cnn':
+            result = cnn.run(args, combination_outdir)
+        else:
+            return "Architecture not found."
 
-    result = nn4.run(args, combination_outdir)
+        # (6) Append used hyperparameters into list
+        learning_rate_factor_list.append(str(combination['learning_rate_factor']))
 
-    epochs_list.append(str(combination['epochs']))
-    learning_rate_steps_list.append(str(combination['learning_rate_steps']))
+        rmse_ite_list.append(result['ite'])
+        ate_list.append(result['ate'])
+        pehe_list.append(result['pehe'])
+        mean_duration_list.append(result['mean_duration'])
 
-    rmse_ite_list.append(result['ite'])
-    ate_list.append(result['ate'])
-    pehe_list.append(result['pehe'])
-    mean_duration_list.append(result['mean_duration'])
+        i += 1
 
-    i += 1
+    df = pd.DataFrame()
 
-myDf = pd.DataFrame()
-myDf['epochs'] = epochs_list
-myDf['learning_rate_steps'] = learning_rate_steps_list
+    # (7) Save hyperparameters list into dataframe
+    df['learning_rate_factor'] = learning_rate_factor_list
 
-myDf['RMSE_ITE'] = np.array(rmse_ite_list)
-myDf['ATE'] = np.array(ate_list)
-myDf['PEHE'] = np.array(pehe_list)
-myDf['MEAN_DURATION'] = np.array(mean_duration_list)
+    df['RMSE_ITE'] = np.array(rmse_ite_list)
+    df['ATE'] = np.array(ate_list)
+    df['PEHE'] = np.array(pehe_list)
+    df['MEAN_DURATION'] = np.array(mean_duration_list)
 
-myDf.to_csv(outdir + 'gridsearch_results.csv', index=False)
+    df.to_csv(outdir + 'gridsearch_results.csv', index=False)
+
+
+if __name__ == "__main__":
+    gridsearch(config_file=sys.argv[1])
