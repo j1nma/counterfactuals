@@ -177,12 +177,10 @@ def run(args, outdir):
             train_loss /= num_batch
             _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
 
-            if epoch % 10 == 0:
-                print(
-                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
-                    '%.3E | time: %.1f' %
-                    (epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate,
-                     time.time() - start))
+            if epoch % 50 == 0:
+                print('[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
+                      '%.3E' % (
+                          epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
@@ -191,19 +189,15 @@ def run(args, outdir):
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
-        train_rmse_f_cf = train_evaluator.get_rmse_f_cf(y_t1, y_t0)
 
         y_t0, y_t1 = predict_treated_and_controlled(net, test_rmse_ite_loader, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
 
-        print('[Train Replication {}/{}]: train RMSE Factual: {:0.3f}, train RMSE Counterfactual: {:0.3f},' \
-              ' train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f},'.format(train_experiment + 1,
+        print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
                                                                                        train_experiments,
-                                                                                       train_rmse_f_cf[0],
-                                                                                       train_rmse_f_cf[1],
                                                                                        train_score[0], train_score[1],
                                                                                        train_score[2],
                                                                                        test_score[0], test_score[1],
@@ -218,18 +212,18 @@ def run(args, outdir):
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    print('train RMSE ITE: {:.3f}±{:.3f}, train ATE: {:.3f}±{:.3f}, train PEHE: {:.3f}±{:.3f}' \
+    print('train RMSE ITE: {:.2f}±{:.2f}, train ATE: {:.2f}±{:.2f}, train PEHE: {:.2f}±{:.2f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test RMSE ITE: {:.3f}±{:.3f}, test ATE: {:.3f}±{:.3f}, test PEHE: {:.3f}±{:.3f}' \
+    print('test RMSE ITE: {:.2f}±{:.2f}, test ATE: {:.2f}±{:.2f}, test PEHE: {:.2f}±{:.2f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
-    means[0] = float("{0:.2f}".format(means[0]))
-    means[1] = float("{0:.2f}".format(means[1]))
-    means[2] = float("{0:.2f}".format(means[2]))
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
-    return {"ite": means[0], "ate": means[1], "pehe": means[2], "mean_duration": mean_duration}
+    return {"ite": "{:.2f}±{:.2f}".format(means[0], stds[0]),
+            "ate": "{:.2f}±{:.2f}".format(means[1], stds[1]),
+            "pehe": "{:.2f}±{:.2f}".format(means[2], stds[2]),
+            "mean_duration": mean_duration}
 
 
 def run_test(args):
