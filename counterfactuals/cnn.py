@@ -228,11 +228,11 @@ def run(args, outdir):
                                                                                       test_score[2]))
 
     # Save means and stds NDArray values for inference
-    mx.nd.save(outdir + 'nn4_means_stds_ihdp_' + str(train_experiments) + '_.nd',
+    mx.nd.save(outdir + args.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
                {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained model
-    net.export(outdir + "nn4-ihdp-predictions-" + str(train_experiments), epoch=epochs)
+    net.export(outdir + args.architecture.lower() + "-ihdp-predictions-" + str(train_experiments), epoch=epochs)
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
@@ -244,9 +244,9 @@ def run(args, outdir):
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
-    return {"ite": "{:.2f}±{:.2f}".format(means[0], stds[0]),
-            "ate": "{:.2f}±{:.2f}".format(means[1], stds[1]),
-            "pehe": "{:.2f}±{:.2f}".format(means[2], stds[2]),
+    return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
+            "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
+            "pehe": "{:.2f} ± {:.2f}".format(means[2], stds[2]),
             "mean_duration": mean_duration}
 
 

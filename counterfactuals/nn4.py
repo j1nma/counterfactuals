@@ -4,6 +4,8 @@
 # Referred to as NN-4 from Johansson et al. paper:
 # "Learning Representations for Counterfactual Inference"
 # arXiv:1605.03661v3 [stat.ML] 6 Jun 2018
+
+# TODO are start end time duration spots OK?
 import time
 import warnings
 
@@ -197,11 +199,11 @@ def run(args, outdir):
 
         print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
               ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
-                                                                                       train_experiments,
-                                                                                       train_score[0], train_score[1],
-                                                                                       train_score[2],
-                                                                                       test_score[0], test_score[1],
-                                                                                       test_score[2]))
+                                                                                      train_experiments,
+                                                                                      train_score[0], train_score[1],
+                                                                                      train_score[2],
+                                                                                      test_score[0], test_score[1],
+                                                                                      test_score[2]))
 
     # Save means and stds NDArray values for inference
     mx.nd.save(outdir + 'nn4_means_stds_ihdp_' + str(train_experiments) + '_.nd',
@@ -220,9 +222,9 @@ def run(args, outdir):
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
-    return {"ite": "{:.2f}±{:.2f}".format(means[0], stds[0]),
-            "ate": "{:.2f}±{:.2f}".format(means[1], stds[1]),
-            "pehe": "{:.2f}±{:.2f}".format(means[2], stds[2]),
+    return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
+            "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
+            "pehe": "{:.2f} ± {:.2f}".format(means[2], stds[2]),
             "mean_duration": mean_duration}
 
 

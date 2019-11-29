@@ -51,7 +51,7 @@ def gridsearch(config_file):
         args.learning_rate_factor = combination['learning_rate_factor']
 
         # (5) Create results directory with hyperparameters
-        combination_outdir = outdir + 'lrf-' + str(combination['learning_rate_factor']) + '/'
+        combination_outdir = outdir + 'lrf-' + str("{0:.3f}".format(combination['learning_rate_factor'])) + '/'
         os.mkdir(combination_outdir)
 
         if args.architecture == 'nn4':
@@ -81,7 +81,7 @@ def gridsearch(config_file):
     df['PEHE'] = np.array(pehe_list)
     df['MEAN_DURATION'] = np.array(mean_duration_list)
 
-    df.to_csv(outdir + 'gridsearch_results.csv', index=False)
+    df.to_csv(outdir + architecture.lower() + '_gridsearch_results.csv', index=False)
 
 
 if __name__ == "__main__":
