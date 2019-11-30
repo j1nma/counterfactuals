@@ -210,18 +210,27 @@ def run(args, outdir):
                {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained model
-    net.export(outdir + "nn4-ihdp-predictions-" + str(train_experiments), epoch=epochs)
+    net.export(outdir + args.architecture.lower() + "-ihdp-predictions-" + str(train_experiments), epoch=epochs)
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
+
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    print('train RMSE ITE: {:.2f}±{:.2f}, train ATE: {:.2f}±{:.2f}, train PEHE: {:.2f}±{:.2f}' \
-          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+    train_total_scores_str = 'train RMSE ITE: {:.2f}±{:.2f}, train ATE: {:.2f}±{:.2f}, train PEHE: {:.2f}±{:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test RMSE ITE: {:.2f}±{:.2f}, test ATE: {:.2f}±{:.2f}, test PEHE: {:.2f}±{:.2f}' \
-          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+    test_total_scores_str = 'test RMSE ITE: {:.2f}±{:.2f}, test ATE: {:.2f}±{:.2f}, test PEHE: {:.2f}±{:.2f}' \
+                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+
+    print(train_total_scores_str)
+    print(test_total_scores_str)
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
+
+    with open(outdir + args.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
+              encoding="utf8") as text_file:
+        print(train_total_scores_str, "\n", train_total_scores_str, file=text_file)
+
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
             "pehe": "{:.2f} ± {:.2f}".format(means[2], stds[2]),

@@ -12,7 +12,7 @@ def net_train(config_file):
 
     # Create results directory
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    outdir = args.outdir + '/' + args.architecture + '-ihdp-predictions-' + timestamp + '/'
+    outdir = args.outdir + '/' + args.architecture + '/' + timestamp + '/'
     os.mkdir(outdir)
 
     try:
