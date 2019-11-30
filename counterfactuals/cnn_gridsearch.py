@@ -41,8 +41,8 @@ def gridsearch(config_file):
     mean_duration_list = []
 
     outdir = outdir + architecture + '/'
-    my_file = Path(outdir)
-    if not my_file.is_dir():
+    outdir_path = Path(outdir)
+    if not outdir_path.is_dir():
         os.mkdir(outdir)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     outdir = outdir + timestamp + '/'

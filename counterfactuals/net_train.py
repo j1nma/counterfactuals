@@ -2,6 +2,7 @@ import datetime
 import os
 import sys
 import traceback
+from pathlib import Path
 
 from counterfactuals import nn4, cnn
 from counterfactuals.utilities import get_args_parser
@@ -11,8 +12,11 @@ def net_train(config_file):
     args = get_args_parser().parse_args(['@' + config_file])
 
     # Create results directory
+    outdir_path = Path(args.outdir)
+    if not outdir_path.is_dir():
+        os.mkdir(args.outdir)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    outdir = args.outdir + '/' + args.architecture + '/' + timestamp + '/'
+    outdir = args.outdir + '/' + timestamp + '/'
     os.mkdir(outdir)
 
     try:

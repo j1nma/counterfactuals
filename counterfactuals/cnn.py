@@ -64,7 +64,8 @@ def run(args, outdir):
     # Plot net graph
     x_sym = mx.sym.var('data')
     sym = net(x_sym)
-    mx.viz.plot_network(sym, title="cnn_plot").view(filename=outdir + args.architecture.lower() + "_plot")
+    mx.viz.plot_network(sym, title=args.architecture.lower() + "_plot").view(
+        filename=outdir + args.architecture.lower() + "_plot")
 
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
