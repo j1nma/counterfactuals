@@ -13,33 +13,28 @@ from counterfactuals.utilities import load_data, split_data_in_train_valid_test,
     predict_treated_and_controlled, predict_treated_and_controlled_with_cnn
 
 
-def cnn_architecture():
-    NUM_OUTPUTS = 1  # number of classes
+def cnn_architecture(kernel_size, strides, pool_size):
     NUM_FILTERS = 1  # number of convolutional filters per convolutional layer
-    KERNEL_SIZE = 3
     PADDING = 1
-    STRIDES = 2
-    POOL_SIZE = 3
-    FULLY_CONNECTED = 25  # number of unit in the fully connected dense layer
+    KERNEL_SIZE = kernel_size
+    STRIDES = strides
+    POOL_SIZE = pool_size
 
     net = nn.HybridSequential()
 
     net.add(gluon.nn.Conv1D(channels=NUM_FILTERS, kernel_size=KERNEL_SIZE, padding=PADDING, activation='relu'))
-    net.add(gluon.nn.MaxPool1D(pool_size=POOL_SIZE, strides=STRIDES))
+    net.add(gluon.nn.AvgPool1D(pool_size=POOL_SIZE, strides=STRIDES))
     net.add(gluon.nn.Conv1D(channels=NUM_FILTERS, kernel_size=KERNEL_SIZE, activation='relu'))
-    net.add(gluon.nn.MaxPool1D(pool_size=POOL_SIZE, strides=STRIDES))
-    net.add(gluon.nn.Flatten())
-    # net.add(gluon.nn.Dense(FULLY_CONNECTED, activation='relu'))
-    net.add(gluon.nn.Dense(NUM_OUTPUTS))
+    net.add(gluon.nn.AvgPool1D(pool_size=POOL_SIZE, strides=STRIDES))
+    net.add(gluon.nn.Dense(1))
     return net
 
 
-def run(args, outdir):
+def run(args, outdir, kernel_size, strides, pool_size):
     # Hyperparameters
     epochs = int(args.epochs)
     learning_rate = float(args.learning_rate)
     wd = float(args.weight_decay)
-    hidden_size = int(args.hidden_size)
     train_experiments = int(args.train_experiments)
     learning_rate_factor = float(args.learning_rate_factor)
     learning_rate_steps = int(args.learning_rate_steps)  # changes the learning rate for every n updates.
@@ -57,7 +52,7 @@ def run(args, outdir):
     np.random.seed(int(args.seed))
 
     # Convolution Neural Network Model
-    net = cnn_architecture()
+    net = cnn_architecture(kernel_size, strides, pool_size)
 
     # Load datasets
     train_dataset = load_data('../' + args.data_dir + args.data_train)
@@ -66,12 +61,19 @@ def run(args, outdir):
     net.initialize(init=init.Xavier(), ctx=ctx)
     net.hybridize()  # hybridize for better performance
 
+    # TODO Plot net graph
+    # net.collect_params().initialize()
+    # x_sym = mx.sym.var('data')
+    # sym = net(x_sym)
+    # mx.viz.plot_network(sym).view()
+
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
     l2_loss = gluon.loss.L2Loss()
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
+    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
+    # optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
     trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
 
     # Initialize train score results
@@ -192,7 +194,7 @@ def run(args, outdir):
             train_loss /= num_batch
             _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
 
-            if epoch % 50 == 0:
+            if epoch % 100 == 0:
                 print(
                     '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
                     '%.3E' %
@@ -235,15 +237,24 @@ def run(args, outdir):
     net.export(outdir + args.architecture.lower() + "-ihdp-predictions-" + str(train_experiments), epoch=epochs)
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
+
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    print('train RMSE ITE: {:.2f}±{:.2f}, train ATE: {:.2f}±{:.2f}, train PEHE: {:.2f}±{:.2f}' \
-          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+    train_total_scores_str = 'train RMSE ITE: {:.2f}±{:.2f}, train ATE: {:.2f}±{:.2f}, train PEHE: {:.2f}±{:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test RMSE ITE: {:.2f}±{:.2f}, test ATE: {:.2f}±{:.2f}, test PEHE: {:.2f}±{:.2f}' \
-          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+    test_total_scores_str = 'test RMSE ITE: {:.2f}±{:.2f}, test ATE: {:.2f}±{:.2f}, test PEHE: {:.2f}±{:.2f}' \
+                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+
+    print(train_total_scores_str)
+    print(test_total_scores_str)
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
+
+    with open(outdir + args.architecture.lower() + "-total-scores-" + str(train_experiments) + ".txt", "w",
+              encoding="utf8") as text_file:
+        print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
+
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
             "pehe": "{:.2f} ± {:.2f}".format(means[2], stds[2]),
