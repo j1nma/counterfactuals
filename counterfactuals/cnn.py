@@ -13,7 +13,7 @@ from counterfactuals.utilities import load_data, split_data_in_train_valid_test,
     predict_treated_and_controlled, predict_treated_and_controlled_with_cnn
 
 
-def cnn_architecture(kernel_size, strides, pool_size):
+def cnn_architecture(kernel_size=3, strides=2, pool_size=2):
     NUM_FILTERS = 1  # number of convolutional filters per convolutional layer
     PADDING = 1
     KERNEL_SIZE = kernel_size
@@ -30,7 +30,7 @@ def cnn_architecture(kernel_size, strides, pool_size):
     return net
 
 
-def run(args, outdir, kernel_size, strides, pool_size):
+def run(args, outdir):
     # Hyperparameters
     epochs = int(args.epochs)
     learning_rate = float(args.learning_rate)
@@ -52,7 +52,7 @@ def run(args, outdir, kernel_size, strides, pool_size):
     np.random.seed(int(args.seed))
 
     # Convolution Neural Network Model
-    net = cnn_architecture(kernel_size, strides, pool_size)
+    net = cnn_architecture()
 
     # Load datasets
     train_dataset = load_data('../' + args.data_dir + args.data_train)
@@ -61,11 +61,10 @@ def run(args, outdir, kernel_size, strides, pool_size):
     net.initialize(init=init.Xavier(), ctx=ctx)
     net.hybridize()  # hybridize for better performance
 
-    # TODO Plot net graph
-    # net.collect_params().initialize()
-    # x_sym = mx.sym.var('data')
-    # sym = net(x_sym)
-    # mx.viz.plot_network(sym).view()
+    # Plot net graph
+    x_sym = mx.sym.var('data')
+    sym = net(x_sym)
+    mx.viz.plot_network(sym, title="cnn_plot").view(filename=outdir + args.architecture.lower() + "_plot")
 
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()

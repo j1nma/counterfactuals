@@ -4,3 +4,4 @@ sklearn
 scipy
 mxnet
 numpy
+graphviz
