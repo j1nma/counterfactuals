@@ -8,12 +8,12 @@ import pandas as pd
 from sklearn.model_selection import ParameterGrid
 
 from counterfactuals import nn4, cnn
-from counterfactuals.net_train import get_args_parser
+from counterfactuals.net_train import get_nn_args_parser
 
 
 def gridsearch(config_file):
     # Parse arguments
-    args = get_args_parser().parse_args(['@' + config_file])
+    args = get_nn_args_parser().parse_args(['@' + config_file])
     outdir = args.outdir
     architecture = args.architecture
 

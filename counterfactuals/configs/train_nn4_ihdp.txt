@@ -10,7 +10,7 @@ nn4
 26
 --hidden_size
 25
---train_experiments
+--experiments
 10
 --learning_rate_factor
 0.96

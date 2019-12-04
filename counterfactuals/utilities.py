@@ -143,20 +143,83 @@ def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
-# TODO adapt with parent parser
-def get_args_parser():
-    parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
+def get_parent_args_parser():
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument(
+        "-e",
+        "--experiments",
+        default=2,
+        type=int,
+        help="Number of experiments."
+    )
+    parent_parser.add_argument(
+        "-lr",
+        "--learning_rate",
+        default=0.001,
+        type=float,
+        help="Initial learning rate."
+    )
+    parent_parser.add_argument(
+        "-lf",
+        "--learning_rate_factor",
+        default=0.97,
+        type=float,
+        help="Learning rate factor."
+    )
+    parent_parser.add_argument(
+        "-od",
+        "--outdir",
+        default='results/ihdp'
+    )
+    parent_parser.add_argument(
+        "-dd",
+        "--data_dir",
+        default='../data'
+    )
+    parent_parser.add_argument(
+        "-td",
+        "--data_train",
+        default='ihdp_npci_1-100.train.npz',
+        help="Train data npz file."
+    )
+    parent_parser.add_argument(
+        "-sd",
+        "--data_test",
+        default='ihdp_npci_1-100.test.npz',
+        help="Test data npz file."
+    )
+    parent_parser.add_argument(
+        "-s",
+        "--seed",
+        default=1,
+        type=int,
+        help="Random seed."
+    )
+    parent_parser.add_argument(
+        "-w",
+        "--num_workers",
+        default=2,
+        type=int,
+        help="Number of cores."
+    )
+    parent_parser.add_argument(
+        "-bs",
+        "--batch_size_per_unit",
+        default=32,
+        type=int,
+        help="Mini-batch size per processing unit."
+    )
+
+    return parent_parser
+
+
+def get_nn_args_parser():
+    parser = argparse.ArgumentParser(fromfile_prefix_chars='@', parents=[get_parent_args_parser()])
     parser.add_argument(
         "-e",
         "--epochs",
         default=100,
         help="Number of epochs per experiment."
-    )
-    parser.add_argument(
-        "-lr",
-        "--learning_rate",
-        default=0.001,
-        help="Initial learning rate."
     )
     parser.add_argument(
         "-wd",
@@ -177,62 +240,10 @@ def get_args_parser():
         help="Number of hidden nodes per layer."
     )
     parser.add_argument(
-        "-te",
-        "--train_experiments",  # TODO rename to experiments and move to parent parser from both
-        default=10,
-        help="Number of train experiments/replications from train data."
-    )
-    parser.add_argument(
-        "-lf",
-        "--learning_rate_factor",
-        default=0.96,
-        help="Learning rate factor."
-    )
-    parser.add_argument(
         "-ls",
         "--learning_rate_steps",
         default=2000,
         help="Changes the learning rate for every given number of updates."
-    )
-    parser.add_argument(
-        "-w",
-        "--num_workers",
-        default=2,
-        help="Number of cores."
-    )
-    parser.add_argument(
-        "-bs",
-        "--batch_size_per_unit",
-        default=32,
-        help="Mini-batch size per processing unit."
-    )
-    parser.add_argument(
-        "-s",
-        "--seed",
-        default=1,
-        help="Random seed."
-    )
-    parser.add_argument(
-        "-od",
-        "--outdir",
-        default='results/ihdp'
-    )
-    parser.add_argument(
-        "-dd",
-        "--data_dir",
-        default='data/'
-    )
-    parser.add_argument(
-        "-td",
-        "--data_train",
-        default='ihdp_npci_1-100.train.npz',
-        help="Train data npz file."
-    )
-    parser.add_argument(
-        "-sd",
-        "--data_test",
-        default='ihdp_npci_1-100.test.npz',
-        help="Test data npz file."
     )
     parser.add_argument(
         "-a",
@@ -358,13 +369,6 @@ def get_cfr_args_parser():
         help="How to normalize representation after batch-normalization."
     )
     cfr_parser.add_argument(
-        "-e",
-        "--experiments",
-        default=2,
-        type=int,
-        help="Number of experiments."
-    )
-    cfr_parser.add_argument(
         "-i",
         "--iterations",
         default=3000,
@@ -397,7 +401,7 @@ def get_cfr_args_parser():
         '--wass_bpg',
         default=1,
         type=int,
-        help='Backpropagate through T matrix?'  # TODO: consider changing or removing
+        help='Whether to backpropagate through T matrix.'  # TODO: consider removing
     )
     cfr_parser.add_argument(
         '-oc',
@@ -450,66 +454,3 @@ def get_cfr_args_parser():
     )
 
     return cfr_parser
-
-
-def get_parent_args_parser():
-    parent_parser = argparse.ArgumentParser(add_help=False)
-    parent_parser.add_argument(
-        "-lr",
-        "--learning_rate",
-        default=0.001,
-        type=float,
-        help="Initial learning rate."
-    )
-    parent_parser.add_argument(
-        "-lf",
-        "--learning_rate_factor",
-        default=0.97,
-        type=float,
-        help="Learning rate factor."
-    )
-    parent_parser.add_argument(
-        "-od",
-        "--outdir",
-        default='results/ihdp'
-    )
-    parent_parser.add_argument(
-        "-dd",
-        "--data_dir",
-        default='../data'
-    )
-    parent_parser.add_argument(
-        "-td",
-        "--data_train",
-        default='ihdp_npci_1-100.train.npz',
-        help="Train data npz file."
-    )
-    parent_parser.add_argument(
-        "-sd",
-        "--data_test",
-        default='ihdp_npci_1-100.test.npz',
-        help="Test data npz file."
-    )
-    parent_parser.add_argument(
-        "-s",
-        "--seed",
-        default=1,
-        type=int,
-        help="Random seed."
-    )
-    parent_parser.add_argument(
-        "-w",
-        "--num_workers",
-        default=2,
-        type=int,
-        help="Number of cores."
-    )
-    parent_parser.add_argument(
-        "-bs",
-        "--batch_size_per_unit",
-        default=32,
-        type=int,
-        help="Mini-batch size per processing unit."
-    )
-
-    return parent_parser

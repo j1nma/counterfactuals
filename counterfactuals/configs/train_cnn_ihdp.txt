@@ -6,7 +6,7 @@ cnn
 0.002
 --weight_decay
 0.0001
---train_experiments
+--experiments
 10
 --learning_rate_factor
 0.99
