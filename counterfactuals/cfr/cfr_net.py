@@ -1,5 +1,3 @@
-import mxnet as mx
-
 from counterfactuals.cfr.util import *
 
 
@@ -210,6 +208,9 @@ class cfr_net(object):
 
         ''' Total error '''
         tot_error = risk
+
+        # mx
+        # mx_tot_error = mx_risk
 
         if FLAGS.p_alpha > 0:
             tot_error = tot_error + imb_error
