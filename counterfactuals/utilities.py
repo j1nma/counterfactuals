@@ -4,7 +4,30 @@ import mxnet as mx
 import numpy as np
 from mxnet import gluon, autograd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+
+
+def validation_split(D_exp, val_fraction):
+    """ Construct a train/validation split """
+    n = D_exp['x'].shape[0]
+
+    if val_fraction > 0:
+        n_valid = int(val_fraction * n)
+        n_train = n - n_valid
+        I = np.random.permutation(range(0, n))
+        I_train = I[:n_train]
+        I_valid = I[n_train:]
+    else:
+        I_train = range(n)
+        I_valid = []
+
+    return I_train, I_valid
+
+
+def log(logfile, str):
+    """ Log a string into a file and print it. """
+    with open(logfile, 'a') as f:
+        f.write(str + '\n')
+    print(str)
 
 
 def load_data(filename):
@@ -22,12 +45,13 @@ def load_data(filename):
     data['dim'] = data['x'].shape[1]
     data['n'] = data['x'].shape[0]
 
+    # TODO: normalize input option
     # Adjust binary feature at index 13: {1, 2} -> {0, 1}
-    data['x'][:, 13] -= 1
+    # data['x'][:, 13] -= 1
 
     # Normalize the continuous features
-    for experiment in range(data['x'][:, :6, :].shape[2]):
-        data['x'][:, :6, experiment] = StandardScaler().fit_transform(data['x'][:, :6, experiment])
+    # for experiment in range(data['x'][:, :6, :].shape[2]):
+    #     data['x'][:, :6, experiment] = StandardScaler().fit_transform(data['x'][:, :6, experiment])
 
     return data
 
@@ -233,6 +257,253 @@ def get_args_parser():
         default='ihdp-predictions-0100.params',
         help="Parameter dictionary for arguments and auxiliary states of outputs that are not inputs."
              "File from training. Inside an outdir folder."
+    )
+
+    return parser
+
+
+# TODO parent parser
+def get_cfr_args_parser():
+    parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
+    parser.add_argument(
+        "-il",
+        "--rep_lay",
+        default=2,
+        type=int,
+        help="Number of representation layers."
+    )
+    parser.add_argument(
+        "-ol",
+        "--reg_lay",
+        default=2,
+        type=int,
+        help="Number of regression layers."
+    )
+    parser.add_argument(
+        "-a",
+        "--p_alpha",
+        default=0,
+        type=float,
+        help="Imbalance penalty."
+    )
+    parser.add_argument(
+        "-ld",
+        "--p_lambda",
+        default=0.0001,
+        type=float,
+        help="Weight decay regularization parameter."
+    )
+    parser.add_argument(
+        '-rd',
+        '--rep_weight_decay',
+        default=0,
+        type=int,
+        help='Whether to penalize representation layers with weight decay.'
+    )
+    parser.add_argument(
+        "-di",
+        "--dropout_in",
+        default=1.0,
+        type=float,
+        help="Dropout keep rate of input layers."  # TODO: consider replacing for rep layers
+    )
+    parser.add_argument(
+        "-do",
+        "--dropout_out",
+        default=1.0,
+        type=float,
+        help="Dropout keep rate of output layers."  # TODO: consider replacing for reg layers
+    )
+    parser.add_argument(
+        "-lr",
+        "--learning_rate",
+        default=0.001,
+        type=float,
+        help="Learning rate."
+    )
+    parser.add_argument(
+        "-pd",
+        "--rms_prop_decay",
+        default=0.3,
+        type=float,
+        help="RMSProp decay."
+    )
+    parser.add_argument(
+        "-bz",
+        "--batch_size",
+        default=100,
+        type=int,
+        help="Batch size."
+    )
+    parser.add_argument(
+        "-id",
+        "--dim_rep",
+        default=25,  # TODO: what about 100?
+        type=int,
+        help="Dimension of representation layers."
+    )
+    parser.add_argument(
+        "-hd",
+        "--dim_hyp",
+        default=25,  # TODO: what about 100?
+        type=int,
+        help="Dimension of hypothesis layers."
+    )
+    parser.add_argument(  # TODO: consider removing
+        '-bn',
+        '--batch_norm',
+        default=0,
+        type=int,
+        help='Whether to use batch-normalization.'
+    )
+    parser.add_argument(
+        "-nr",
+        "--normalization",
+        default='divide',
+        choices=['none', 'bn_fixed', 'divide', 'project'],
+        help="How to normalize representation after batch-normalization."
+    )
+    parser.add_argument(
+        "-e",
+        "--experiments",
+        default=2,
+        type=int,
+        help="Number of experiments."
+    )
+    parser.add_argument(
+        "-i",
+        "--iterations",
+        default=3000,
+        type=int,
+        help="Number of iterations."
+    )
+    parser.add_argument(
+        "-ws",
+        "--weight_init_scale",
+        default=0.1,
+        type=float,
+        help="Weight initialization scale."
+    )
+    parser.add_argument(
+        "-lf",
+        "--learning_rate_factor",
+        default=0.97,
+        type=float,
+        help="Learning rate factor"
+    )
+    parser.add_argument(
+        "-wi",
+        "--wass_iterations",
+        default=10,
+        type=int,
+        help="Number of iterations in Wasserstein computation."
+    )
+    parser.add_argument(
+        "-wl",
+        "--wass_lambda",
+        default=10.0,
+        type=float,
+        help="Wasserstein lambda."
+    )
+    parser.add_argument(
+        '-wb',
+        '--wass_bpg',
+        default=1,
+        type=int,
+        help='Backpropagate through T matrix?'  # TODO: consider changing or removing
+    )
+    parser.add_argument(
+        "-od",
+        "--outdir",
+        default='results/example_ihdp'  # TODO change "example_ihdp" globally to "cfr_ihdp"
+    )
+    parser.add_argument(
+        "-dd",
+        "--data_dir",
+        default='../data'
+    )
+    parser.add_argument(
+        "-td",
+        "--data_train",
+        default='ihdp_npci_1-100.train.npz',
+        help="Train data npz file."
+    )
+    parser.add_argument(
+        "-sd",
+        "--data_test",
+        default='ihdp_npci_1-100.test.npz',
+        help="Test data npz file."
+    )
+    parser.add_argument(
+        "-s",
+        "--seed",
+        default=1,
+        type=int,
+        help="Random seed."
+    )
+    parser.add_argument(  # TODO: consider removing
+        '-oc',
+        '--output_csv',
+        default=0,
+        type=int,
+        help='Whether to save a CSV file with the results.'
+    )
+    parser.add_argument(
+        "-oy",
+        "--output_delay",
+        default=100,
+        type=int,
+        help="Number of iterations between log/loss outputs."
+    )
+    parser.add_argument(
+        "-pi",
+        "--pred_output_iter",
+        default=200,
+        type=int,
+        help="Number of delay iterations between prediction outputs. (-1 gives no intermediate output)."
+        # TODO: consider changing or removing
+    )
+    parser.add_argument(  # TODO: consider removing
+        '-sp',
+        '--save_rep',
+        default=0,
+        type=int,
+        help='Whether to save representations after training.'
+    )
+    parser.add_argument(
+        "-v",
+        "--val_part",
+        default=0.3,
+        type=float,
+        help="Validation part."  # TODO: consider changing or removing
+    )
+    parser.add_argument(  # TODO: consider removing
+        '-so',
+        '--split_output',
+        default=False,
+        type=bool,
+        help='Whether to split output layers between treated and control.'
+    )
+    parser.add_argument(  # TODO: consider removing
+        '-rw',
+        '--reweight_sample',
+        default=True,
+        type=bool,
+        help='Whether to reweight sample for prediction loss with average treatment probability.'
+    )
+    parser.add_argument(
+        "-w",
+        "--num_workers",
+        default=2,
+        type=int,
+        help="Number of cores."
+    )
+    parser.add_argument(
+        "-bs",
+        "--batch_size_per_unit",
+        default=32,
+        type=int,
+        help="Mini-batch size per processing unit."
     )
 
     return parser
