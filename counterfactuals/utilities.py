@@ -305,14 +305,14 @@ def get_cfr_args_parser():
         "--dropout_in",
         default=1.0,
         type=float,
-        help="Dropout keep rate of input layers."  # TODO: consider replacing for rep layers
+        help="Dropout keep rate of input layers."
     )
     parser.add_argument(
         "-do",
         "--dropout_out",
         default=1.0,
         type=float,
-        help="Dropout keep rate of output layers."  # TODO: consider replacing for reg layers
+        help="Dropout keep rate of output layers."
     )
     parser.add_argument(
         "-lr",
@@ -349,7 +349,7 @@ def get_cfr_args_parser():
         type=int,
         help="Dimension of hypothesis layers."
     )
-    parser.add_argument(  # TODO: consider removing
+    parser.add_argument(
         '-bn',
         '--batch_norm',
         default=0,
@@ -415,7 +415,7 @@ def get_cfr_args_parser():
     parser.add_argument(
         "-od",
         "--outdir",
-        default='results/example_ihdp'  # TODO change "example_ihdp" globally to "cfr_ihdp"
+        default='results/ihdp/cfr'
     )
     parser.add_argument(
         "-dd",
@@ -441,7 +441,7 @@ def get_cfr_args_parser():
         type=int,
         help="Random seed."
     )
-    parser.add_argument(  # TODO: consider removing
+    parser.add_argument(
         '-oc',
         '--output_csv',
         default=0,
@@ -461,7 +461,6 @@ def get_cfr_args_parser():
         default=200,
         type=int,
         help="Number of delay iterations between prediction outputs. (-1 gives no intermediate output)."
-        # TODO: consider changing or removing
     )
     parser.add_argument(  # TODO: consider removing
         '-sp',
@@ -475,16 +474,16 @@ def get_cfr_args_parser():
         "--val_part",
         default=0.3,
         type=float,
-        help="Validation part."  # TODO: consider changing or removing
+        help="Validation part."  # TODO: consider changing
     )
-    parser.add_argument(  # TODO: consider removing
+    parser.add_argument(
         '-so',
         '--split_output',
         default=False,
         type=bool,
         help='Whether to split output layers between treated and control.'
     )
-    parser.add_argument(  # TODO: consider removing
+    parser.add_argument(
         '-rw',
         '--reweight_sample',
         default=True,

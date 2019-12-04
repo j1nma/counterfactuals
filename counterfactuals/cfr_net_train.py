@@ -308,7 +308,7 @@ def run(outdir):
                 np.savez(repfile_test, rep=reps_test)
 
 
-def main():
+def main(argv=None):
     # Parse arguments
     global FLAGS
     FLAGS = get_cfr_args_parser().parse_args()
