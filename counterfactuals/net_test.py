@@ -10,6 +10,8 @@ from counterfactuals.utilities import get_args_parser
 def net_test(config_file=sys.argv[1]):
     args = get_args_parser().parse_args(['@' + config_file])
 
+    # TODO # Create results directory
+
     try:
 
         if args.architecture == 'nn4':
