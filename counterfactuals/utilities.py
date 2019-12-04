@@ -216,7 +216,7 @@ def get_parent_args_parser():
 def get_nn_args_parser():
     parser = argparse.ArgumentParser(fromfile_prefix_chars='@', parents=[get_parent_args_parser()])
     parser.add_argument(
-        "-e",
+        "-ep",
         "--epochs",
         default=100,
         help="Number of epochs per experiment."
