@@ -5,6 +5,8 @@ import random
 import sys
 import traceback
 
+import mxnet as mx
+
 from counterfactuals.cfr.cfr_net import cfr_net
 from counterfactuals.cfr.util import *
 from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser
@@ -198,8 +200,13 @@ def run(outdir):
 
     ''' Initialize input placeholders '''
     x = tf.placeholder("float", shape=[None, D['dim']], name='x')  # Features
-    t = tf.placeholder("float", shape=[None, 1], name='t')  # Treatent
+    t = tf.placeholder("float", shape=[None, 1], name='t')  # Treatment
     y_ = tf.placeholder("float", shape=[None, 1], name='y_')  # Outcome
+
+    # mx
+    mx_x = mx.sym.Variable(name='x', dtype="float", shape=(None, D['dim']))
+    mx_t = mx.sym.Variable(name='t', dtype="float", shape=(None, 1))
+    mx_y_ = mx.sym.Variable(name='y_', dtype="float", shape=(None, 1))
 
     ''' Parameter placeholders '''
     r_alpha = tf.placeholder("float", name='r_alpha')
@@ -208,10 +215,18 @@ def run(outdir):
     do_out = tf.placeholder("float", name='dropout_out')
     p = tf.placeholder("float", name='p_treated')
 
+    # mx
+    mx_r_alpha = mx.sym.Variable(name='r_alpha', dtype="float")
+    mx_r_lambda = mx.sym.Variable(name='r_lambda', dtype="float")
+    mx_do_in = FLAGS.dropout_in
+    # mx_do_in = mx.sym.Variable(name='dropout_in', dtype="float")
+    mx_do_out = mx.sym.Variable(name='dropout_out', dtype="float")
+    mx_p = mx.sym.Variable(name='p_treated', dtype="float")
+
     ''' Define model graph '''
     log(logfile, 'Defining graph...\n')
     dims = [D['dim'], FLAGS.dim_rep, FLAGS.dim_hyp]
-    CFR = cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims)
+    CFR = cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in, mx_do_out, mx_x, mx_t, mx_y_, mx_p)
 
     ''' Set up optimizer '''
     global_step = tf.Variable(0, trainable=False)

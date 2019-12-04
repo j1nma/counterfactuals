@@ -1,3 +1,5 @@
+import mxnet as mx
+
 from counterfactuals.cfr.util import *
 
 
@@ -11,14 +13,17 @@ class cfr_net(object):
     creates an object containing relevant TF nodes as member variables.
     """
 
-    def __init__(self, x, t, y_, p_t, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_x=None, mx_t=None, mx_y=None,
+    def __init__(self, x, t, y_, p_t, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in=None, mx_do_out=None,
+                 mx_x=None, mx_t=None, mx_y=None,
                  mx_p_t=None):
         self.variables = {}
         self.wd_loss = 0
 
         self.nonlin = tf.nn.relu
+        self.mx_nonlin = mx.symbol.relu
 
-        self._build_graph(x, t, y_, p_t, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_x, mx_t, mx_y, mx_p_t)
+        self._build_graph(x, t, y_, p_t, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in, mx_do_out, mx_x, mx_t,
+                          mx_y, mx_p_t)
 
     def _add_variable(self, var, name):
         ''' Adds variables to the internal track-keeper '''
@@ -44,7 +49,8 @@ class cfr_net(object):
         self.wd_loss += wd * tf.nn.l2_loss(var)
         return var
 
-    def _build_graph(self, x, t, y_, p_t, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_x, mx_t, mx_y_, mx_p_t):
+    def _build_graph(self, x, t, y_, p_t, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in, mx_do_out, mx_x,
+                     mx_t, mx_y_, mx_p_t):
         """
         Constructs a TensorFlow subgraph for counterfactual regression.
         Sets the following member variables (to TF nodes):
@@ -67,6 +73,13 @@ class cfr_net(object):
         self.r_lambda = r_lambda
         self.do_in = do_in
         self.do_out = do_out
+
+        self.mx_x = mx_x
+        self.mx_t = mx_t
+        self.mx_y_ = mx_y_
+        self.mx_p_t = mx_p_t
+        self.mx_do_in = mx_do_in
+        self.mx_do_out = mx_do_out
 
         dim_input = dims[0]
         dim_in = dims[1]
@@ -120,8 +133,7 @@ class cfr_net(object):
             # mx
             dim_in_zeros = mx.symbol.Variable('dim_in_zeros')
             mx_biases_in.append(mx.nd.zeros(shape=(1, dim_in)))
-            # mx_z = mx.symbol.linalg.gemm2(mx_h_in[i], mx_weights_in[i]) + mx_biases_in[i]
-            # mx_z = mx.symbol.linalg.gemm2(mx_h_in[i], random_values) + dim_in_zeros
+            mx_z = mx.symbol.dot(mx_h_in[i], random_values) + dim_in_zeros
 
             if FLAGS.batch_norm:
                 batch_mean, batch_var = tf.nn.moments(z, [0])
@@ -137,8 +149,8 @@ class cfr_net(object):
             h_in[i + 1] = tf.nn.dropout(h_in[i + 1], do_in)
 
             # mx
-            # mx_h_in.append(self.nonlin(mx_z))
-            # mx_h_in[i + 1] = mx.gluon.nn.Dropout(mx_h_in[i + 1], rate=do_in)
+            mx_h_in.append(self.mx_nonlin(mx_z))
+            mx_h_in[i + 1] = mx.symbol.Dropout(mx_h_in[i + 1], p=1 - mx_do_in)  # TODO, again, watchout with keep prob
 
         h_rep = h_in[len(h_in) - 1]
 
