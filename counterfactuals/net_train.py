@@ -5,11 +5,11 @@ import traceback
 from pathlib import Path
 
 from counterfactuals import nn4, cnn
-from counterfactuals.utilities import get_args_parser
+from counterfactuals.utilities import get_nn_args_parser
 
 
 def net_train(config_file):
-    args = get_args_parser().parse_args(['@' + config_file])
+    args = get_nn_args_parser().parse_args(['@' + config_file])
 
     # Create results directory
     outdir_path = Path(args.outdir)

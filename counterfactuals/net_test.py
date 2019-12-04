@@ -4,11 +4,11 @@ import sys
 import traceback
 
 from counterfactuals import nn4
-from counterfactuals.utilities import get_args_parser
+from counterfactuals.utilities import get_nn_args_parser
 
 
 def net_test(config_file=sys.argv[1]):
-    args = get_args_parser().parse_args(['@' + config_file])
+    args = get_nn_args_parser().parse_args(['@' + config_file])
 
     # TODO # Create results directory
 
