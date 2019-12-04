@@ -32,7 +32,7 @@ def cnn_architecture(kernel_size=3, strides=2, pool_size=2):
 
 def run(args, outdir):
     # Hyperparameters
-    epochs = int(args.epochs)
+    epochs = int(args.iterations)
     learning_rate = float(args.learning_rate)
     wd = float(args.weight_decay)
     train_experiments = int(args.experiments)

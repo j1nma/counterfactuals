@@ -153,6 +153,13 @@ def get_parent_args_parser():
         help="Number of experiments."
     )
     parent_parser.add_argument(
+        "-i",
+        "--iterations",
+        default=3000,
+        type=int,
+        help="Number of iterations or epochs."
+    )
+    parent_parser.add_argument(
         "-lr",
         "--learning_rate",
         default=0.001,
@@ -215,12 +222,6 @@ def get_parent_args_parser():
 
 def get_nn_args_parser():
     parser = argparse.ArgumentParser(fromfile_prefix_chars='@', parents=[get_parent_args_parser()])
-    parser.add_argument(
-        "-ep",
-        "--epochs",
-        default=100,
-        help="Number of epochs per experiment."
-    )
     parser.add_argument(
         "-wd",
         "--weight_decay",
@@ -367,13 +368,6 @@ def get_cfr_args_parser():
         default='divide',
         choices=['none', 'bn_fixed', 'divide', 'project'],
         help="How to normalize representation after batch-normalization."
-    )
-    cfr_parser.add_argument(
-        "-i",
-        "--iterations",
-        default=3000,
-        type=int,
-        help="Number of iterations."
     )
     cfr_parser.add_argument(
         "-ws",

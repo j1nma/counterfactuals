@@ -32,7 +32,7 @@ def ff4_relu_architecture(hidden_size):
 
 def run(args, outdir):
     # Hyperparameters
-    epochs = int(args.epochs)
+    epochs = int(args.iterations)
     learning_rate = float(args.learning_rate)
     wd = float(args.weight_decay)
     hidden_size = int(args.hidden_size)
