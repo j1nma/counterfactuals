@@ -1,4 +1,5 @@
 import os
+import pathlib
 import sys
 from subprocess import call
 
@@ -55,6 +56,12 @@ def run(cfg_file, num_runs):
     configs = load_config(cfg_file)
 
     outdir = configs['outdir'][0]
+
+    # Create outdir if inexistent
+    outdir_path = pathlib.Path(outdir)
+    if not outdir_path.is_dir():
+        os.mkdir(outdir)
+
     used_cfg_file = '%s/used_configs.txt' % outdir
 
     if not os.path.isfile(used_cfg_file):

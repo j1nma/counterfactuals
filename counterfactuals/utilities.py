@@ -143,6 +143,7 @@ def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
+# TODO adapt with parent parser
 def get_args_parser():
     parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
     parser.add_argument(
@@ -177,14 +178,15 @@ def get_args_parser():
     )
     parser.add_argument(
         "-te",
-        "--train_experiments",
+        "--train_experiments",  # TODO rename to experiments and move to parent parser from both
         default=10,
         help="Number of train experiments/replications from train data."
     )
     parser.add_argument(
         "-lf",
         "--learning_rate_factor",
-        default=0.96
+        default=0.96,
+        help="Learning rate factor."
     )
     parser.add_argument(
         "-ls",
@@ -262,242 +264,247 @@ def get_args_parser():
     return parser
 
 
-# TODO parent parser
 def get_cfr_args_parser():
-    parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
-    parser.add_argument(
+    cfr_parser = argparse.ArgumentParser(fromfile_prefix_chars='@', parents=[get_parent_args_parser()])
+    cfr_parser.add_argument(
         "-il",
         "--rep_lay",
         default=2,
         type=int,
         help="Number of representation layers."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-ol",
         "--reg_lay",
         default=2,
         type=int,
         help="Number of regression layers."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-a",
         "--p_alpha",
         default=0,
         type=float,
         help="Imbalance penalty."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-ld",
         "--p_lambda",
         default=0.0001,
         type=float,
         help="Weight decay regularization parameter."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         '-rd',
         '--rep_weight_decay',
         default=0,
         type=int,
         help='Whether to penalize representation layers with weight decay.'
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-di",
         "--dropout_in",
         default=1.0,
         type=float,
         help="Dropout keep rate of input layers."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-do",
         "--dropout_out",
         default=1.0,
         type=float,
         help="Dropout keep rate of output layers."
     )
-    parser.add_argument(
-        "-lr",
-        "--learning_rate",
-        default=0.001,
-        type=float,
-        help="Learning rate."
-    )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-pd",
         "--rms_prop_decay",
         default=0.3,
         type=float,
         help="RMSProp decay."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-bz",
         "--batch_size",
         default=100,
         type=int,
         help="Batch size."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-id",
         "--dim_rep",
         default=25,  # TODO: what about 100?
         type=int,
         help="Dimension of representation layers."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-hd",
         "--dim_hyp",
         default=25,  # TODO: what about 100?
         type=int,
         help="Dimension of hypothesis layers."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         '-bn',
         '--batch_norm',
         default=0,
         type=int,
         help='Whether to use batch-normalization.'
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-nr",
         "--normalization",
         default='divide',
         choices=['none', 'bn_fixed', 'divide', 'project'],
         help="How to normalize representation after batch-normalization."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-e",
         "--experiments",
         default=2,
         type=int,
         help="Number of experiments."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-i",
         "--iterations",
         default=3000,
         type=int,
         help="Number of iterations."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-ws",
         "--weight_init_scale",
         default=0.1,
         type=float,
         help="Weight initialization scale."
     )
-    parser.add_argument(
-        "-lf",
-        "--learning_rate_factor",
-        default=0.97,
-        type=float,
-        help="Learning rate factor"
-    )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-wi",
         "--wass_iterations",
         default=10,
         type=int,
         help="Number of iterations in Wasserstein computation."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-wl",
         "--wass_lambda",
         default=10.0,
         type=float,
         help="Wasserstein lambda."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         '-wb',
         '--wass_bpg',
         default=1,
         type=int,
         help='Backpropagate through T matrix?'  # TODO: consider changing or removing
     )
-    parser.add_argument(
-        "-od",
-        "--outdir",
-        default='results/ihdp/cfr'
-    )
-    parser.add_argument(
-        "-dd",
-        "--data_dir",
-        default='../data'
-    )
-    parser.add_argument(
-        "-td",
-        "--data_train",
-        default='ihdp_npci_1-100.train.npz',
-        help="Train data npz file."
-    )
-    parser.add_argument(
-        "-sd",
-        "--data_test",
-        default='ihdp_npci_1-100.test.npz',
-        help="Test data npz file."
-    )
-    parser.add_argument(
-        "-s",
-        "--seed",
-        default=1,
-        type=int,
-        help="Random seed."
-    )
-    parser.add_argument(
+    cfr_parser.add_argument(
         '-oc',
         '--output_csv',
         default=0,
         type=int,
         help='Whether to save a CSV file with the results.'
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-oy",
         "--output_delay",
         default=100,
         type=int,
         help="Number of iterations between log/loss outputs."
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-pi",
         "--pred_output_iter",
         default=200,
         type=int,
         help="Number of delay iterations between prediction outputs. (-1 gives no intermediate output)."
     )
-    parser.add_argument(  # TODO: consider removing
+    cfr_parser.add_argument(  # TODO: consider removing
         '-sp',
         '--save_rep',
         default=0,
         type=int,
         help='Whether to save representations after training.'
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         "-v",
         "--val_part",
         default=0.3,
         type=float,
         help="Validation part."  # TODO: consider changing
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         '-so',
         '--split_output',
         default=False,
         type=bool,
         help='Whether to split output layers between treated and control.'
     )
-    parser.add_argument(
+    cfr_parser.add_argument(
         '-rw',
         '--reweight_sample',
         default=True,
         type=bool,
         help='Whether to reweight sample for prediction loss with average treatment probability.'
     )
-    parser.add_argument(
+
+    return cfr_parser
+
+
+def get_parent_args_parser():
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument(
+        "-lr",
+        "--learning_rate",
+        default=0.001,
+        type=float,
+        help="Initial learning rate."
+    )
+    parent_parser.add_argument(
+        "-lf",
+        "--learning_rate_factor",
+        default=0.97,
+        type=float,
+        help="Learning rate factor."
+    )
+    parent_parser.add_argument(
+        "-od",
+        "--outdir",
+        default='results/ihdp'
+    )
+    parent_parser.add_argument(
+        "-dd",
+        "--data_dir",
+        default='../data'
+    )
+    parent_parser.add_argument(
+        "-td",
+        "--data_train",
+        default='ihdp_npci_1-100.train.npz',
+        help="Train data npz file."
+    )
+    parent_parser.add_argument(
+        "-sd",
+        "--data_test",
+        default='ihdp_npci_1-100.test.npz',
+        help="Test data npz file."
+    )
+    parent_parser.add_argument(
+        "-s",
+        "--seed",
+        default=1,
+        type=int,
+        help="Random seed."
+    )
+    parent_parser.add_argument(
         "-w",
         "--num_workers",
         default=2,
         type=int,
         help="Number of cores."
     )
-    parser.add_argument(
+    parent_parser.add_argument(
         "-bs",
         "--batch_size_per_unit",
         default=32,
@@ -505,4 +512,4 @@ def get_cfr_args_parser():
         help="Mini-batch size per processing unit."
     )
 
-    return parser
+    return parent_parser
