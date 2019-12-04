@@ -211,7 +211,6 @@ def run(outdir):
     ''' Define model graph '''
     log(logfile, 'Defining graph...\n')
     dims = [D['dim'], FLAGS.dim_rep, FLAGS.dim_hyp]
-    # CFR = cfr.cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims)
     CFR = cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims)
 
     ''' Set up optimizer '''
