@@ -156,16 +156,13 @@ def run(outdir):
     f = open(logfile, 'w')
     f.close()
     data_train = FLAGS.data_dir + FLAGS.data_train
-
-    has_test = False
-    if not FLAGS.data_test == '':  # if test set supplied
-        has_test = True
-        data_train_test = FLAGS.data_dir + FLAGS.data_test
+    data_train_test = FLAGS.data_dir + FLAGS.data_test
 
     ''' Set random seeds '''
     random.seed(FLAGS.seed)
     tf.set_random_seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
+    mx.random.seed(FLAGS.seed)
 
     ''' Save parameters '''
     save_config(outdir + 'config.txt', FLAGS)
@@ -173,25 +170,13 @@ def run(outdir):
     log(logfile, 'Training with hyperparameters: alpha=%.2g, lambda=%.2g' % (FLAGS.p_alpha, FLAGS.p_lambda))
 
     ''' Load Data '''
-    npz_input = False
-    if data_train[-3:] == 'npz':
-        npz_input = True
-    if npz_input:
-        datapath = data_train
-        if has_test:
-            datapath_test = data_train_test
-    else:
-        datapath = data_train % 1
-        if has_test:
-            datapath_test = data_train_test % 1
+    datapath = data_train
+    datapath_test = data_train_test
 
     log(logfile, 'Training data: ' + datapath)
-    if has_test:
-        log(logfile, 'Test data:     ' + datapath_test)
+    log(logfile, 'Test data:     ' + datapath_test)
     D = load_data(datapath)
-    D_test = None
-    if has_test:
-        D_test = load_data(datapath_test)
+    D_test = load_data(datapath_test)
 
     log(logfile, 'Loaded data with shape [%d,%d]' % (D['n'], D['dim']))
 
@@ -257,26 +242,17 @@ def run(outdir):
         ''' Load Data)'''
 
         if i_exp == 1 or FLAGS.experiments > 1:
-            D_exp_test = None
-            if npz_input:
-                D_exp = {}
-                D_exp['x'] = D['x'][:, :, i_exp - 1]
-                D_exp['t'] = D['t'][:, i_exp - 1:i_exp]
-                D_exp['yf'] = D['yf'][:, i_exp - 1:i_exp]
-                D_exp['ycf'] = D['ycf'][:, i_exp - 1:i_exp]
+            D_exp = {}
+            D_exp['x'] = D['x'][:, :, i_exp - 1]
+            D_exp['t'] = D['t'][:, i_exp - 1:i_exp]
+            D_exp['yf'] = D['yf'][:, i_exp - 1:i_exp]
+            D_exp['ycf'] = D['ycf'][:, i_exp - 1:i_exp]
 
-                if has_test:
-                    D_exp_test = {}
-                    D_exp_test['x'] = D_test['x'][:, :, i_exp - 1]
-                    D_exp_test['t'] = D_test['t'][:, i_exp - 1:i_exp]
-                    D_exp_test['yf'] = D_test['yf'][:, i_exp - 1:i_exp]
-                    D_exp_test['ycf'] = D_test['ycf'][:, i_exp - 1:i_exp]
-            else:
-                datapath = data_train % i_exp
-                D_exp = load_data(datapath)
-                if has_test:
-                    datapath_test = data_train_test % i_exp
-                    D_exp_test = load_data(datapath_test)
+            D_exp_test = {}
+            D_exp_test['x'] = D_test['x'][:, :, i_exp - 1]
+            D_exp_test['t'] = D_test['t'][:, i_exp - 1:i_exp]
+            D_exp_test['yf'] = D_test['yf'][:, i_exp - 1:i_exp]
+            D_exp_test['ycf'] = D_test['ycf'][:, i_exp - 1:i_exp]
 
         ''' Split into training and validation sets '''
         I_train, I_valid = validation_split(D_exp, FLAGS.val_part)
@@ -296,8 +272,7 @@ def run(outdir):
 
         ''' Fix shape for output (n_units, dim, n_reps, n_outputs) '''
         out_preds_train = np.swapaxes(np.swapaxes(all_preds_train, 1, 3), 0, 2)
-        if has_test:
-            out_preds_test = np.swapaxes(np.swapaxes(all_preds_test, 1, 3), 0, 2)
+        out_preds_test = np.swapaxes(np.swapaxes(all_preds_test, 1, 3), 0, 2)
         out_losses = np.swapaxes(np.swapaxes(all_losses, 0, 2), 0, 1)
 
         ''' Store predictions '''
@@ -311,15 +286,13 @@ def run(outdir):
         all_valid.append(I_valid)
         np.savez(npzfile, pred=out_preds_train, loss=out_losses, val=np.array(all_valid))
 
-        if has_test:
-            np.savez(npzfile_test, pred=out_preds_test)
+        np.savez(npzfile_test, pred=out_preds_test)
 
         ''' Save representations '''
         if FLAGS.save_rep and i_exp == 1:
             np.savez(repfile, rep=reps)
 
-            if has_test:
-                np.savez(repfile_test, rep=reps_test)
+            np.savez(repfile_test, rep=reps_test)
 
 
 def main(argv=None):
