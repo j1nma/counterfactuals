@@ -219,14 +219,14 @@ def run(outdir):
     mx_r_alpha = mx.sym.Variable(name='r_alpha', dtype="float")
     mx_r_lambda = mx.sym.Variable(name='r_lambda', dtype="float")
     mx_do_in = FLAGS.dropout_in
-    # mx_do_in = mx.sym.Variable(name='dropout_in', dtype="float")
-    mx_do_out = mx.sym.Variable(name='dropout_out', dtype="float")
+    mx_do_out = FLAGS.dropout_out
     mx_p = mx.sym.Variable(name='p_treated', dtype="float")
 
     ''' Define model graph '''
     log(logfile, 'Defining graph...\n')
     dims = [D['dim'], FLAGS.dim_rep, FLAGS.dim_hyp]
-    CFR = cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in, mx_do_out, mx_x, mx_t, mx_y_, mx_p)
+    CFR = cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims,
+                  mx_do_in, mx_do_out, mx_x, mx_t, mx_y_, mx_p)
 
     ''' Set up optimizer '''
     global_step = tf.Variable(0, trainable=False)
