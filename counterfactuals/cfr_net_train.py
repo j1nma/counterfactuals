@@ -5,9 +5,7 @@ import random
 import sys
 import traceback
 
-import mxnet as mx
-
-from counterfactuals.cfr.cfr_net import cfr_net
+from counterfactuals.cfr.cfr_net import cfr_net, mx_cfr_net
 from counterfactuals.cfr.util import *
 from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser
 
@@ -295,6 +293,129 @@ def run(outdir):
             np.savez(repfile_test, rep=reps_test)
 
 
+def mx_run(outdir):
+    """ Runs an experiment and stores result in outdir """
+
+    ''' Set up paths and start log '''
+    npzfile = outdir + 'result'
+    npzfile_test = outdir + 'result.test'
+    outform = outdir + 'y_pred'
+    outform_test = outdir + 'y_pred.test'
+    lossform = outdir + 'loss'
+    logfile = outdir + 'log.txt'
+    f = open(logfile, 'w')
+    f.close()
+    data_train = FLAGS.data_dir + FLAGS.data_train
+    data_train_test = FLAGS.data_dir + FLAGS.data_test
+
+    ''' Set random seeds '''
+    random.seed(FLAGS.seed)
+    tf.set_random_seed(FLAGS.seed)
+    np.random.seed(FLAGS.seed)
+    mx.random.seed(FLAGS.seed)
+
+    ''' Save parameters '''
+    save_config(outdir + 'config.txt', FLAGS)
+
+    log(logfile, 'Training with hyperparameters: alpha=%.2g, lambda=%.2g' % (FLAGS.p_alpha, FLAGS.p_lambda))
+
+    ''' Load Data '''
+    datapath = data_train
+    datapath_test = data_train_test
+
+    log(logfile, 'Training data: ' + datapath)
+    log(logfile, 'Test data:     ' + datapath_test)
+    D = load_data(datapath)
+    D_test = load_data(datapath_test)
+
+    log(logfile, 'Loaded data with shape [%d,%d]' % (D['n'], D['dim']))
+
+    ''' Initialize input placeholders '''
+    mx_x = mx.sym.Variable(name='x', dtype="float", shape=(None, D['dim']))
+    mx_t = mx.sym.Variable(name='t', dtype="float", shape=(None, 1))
+    mx_y_ = mx.sym.Variable(name='y_', dtype="float", shape=(None, 1))
+
+    ''' Parameter placeholders '''
+    mx_r_alpha = mx.sym.Variable(name='r_alpha', dtype="float")
+    mx_r_lambda = mx.sym.Variable(name='r_lambda', dtype="float")
+    mx_do_in = FLAGS.dropout_in
+    mx_do_out = FLAGS.dropout_out
+    mx_p = mx.sym.Variable(name='p_treated', dtype="float")
+
+    ''' Define model graph '''
+    log(logfile, 'Defining graph...\n')
+    dims = [D['dim'], FLAGS.dim_rep, FLAGS.dim_hyp]
+    CFR = mx_cfr_net(FLAGS, mx_r_alpha, mx_r_lambda, mx_do_in, mx_do_out, dims, mx_do_in, mx_do_out, mx_x, mx_t, mx_y_,
+                     mx_p)
+
+    ''' Set up optimizer '''
+    global_step = tf.Variable(0, trainable=False)
+    lr = tf.train.exponential_decay(FLAGS.learning_rate, global_step, \
+                                    NUM_ITERATIONS_PER_DECAY, FLAGS.learning_rate_factor, staircase=True)
+
+    # TODO
+    # opt = tf.train.AdamOptimizer(lr)
+    opt = tf.train.RMSPropOptimizer(lr, FLAGS.rms_prop_decay)
+
+    train_step = opt.minimize(CFR.tot_loss, global_step=global_step)
+
+    ''' Set up for saving variables '''
+    all_losses = []
+    all_preds_train = []
+    all_preds_test = []
+    all_valid = []
+
+    all_preds_test = []
+
+    n_experiments = FLAGS.experiments
+
+    ''' Run for all repeated experiments '''
+    for i_exp in range(1, n_experiments + 1):
+
+        log(logfile, 'Training on experiment %d/%d...' % (i_exp, n_experiments))
+
+        ''' Load Data)'''
+
+        if i_exp == 1 or FLAGS.experiments > 1:
+            D_exp = {}
+            D_exp['x'] = D['x'][:, :, i_exp - 1]
+            D_exp['t'] = D['t'][:, i_exp - 1:i_exp]
+            D_exp['yf'] = D['yf'][:, i_exp - 1:i_exp]
+            D_exp['ycf'] = D['ycf'][:, i_exp - 1:i_exp]
+
+            D_exp_test = {}
+            D_exp_test['x'] = D_test['x'][:, :, i_exp - 1]
+            D_exp_test['t'] = D_test['t'][:, i_exp - 1:i_exp]
+            D_exp_test['yf'] = D_test['yf'][:, i_exp - 1:i_exp]
+            D_exp_test['ycf'] = D_test['ycf'][:, i_exp - 1:i_exp]
+
+        ''' Split into training and validation sets '''
+        I_train, I_valid = validation_split(D_exp, FLAGS.val_part)
+        # TODO: replace?
+        # I_train, I_valid = train_test_split(np.arange(D_exp['x'].shape[0]), test_size=FLAGS.val_part,
+        #                                     random_state=FLAGS.seed)
+
+        ''' Run training loop '''
+
+
+        ''' Collect all reps '''
+
+
+        ''' Fix shape for output (n_units, dim, n_reps, n_outputs) '''
+        out_preds_train = np.swapaxes(np.swapaxes(all_preds_train, 1, 3), 0, 2)
+        out_preds_test = np.swapaxes(np.swapaxes(all_preds_test, 1, 3), 0, 2)
+        out_losses = np.swapaxes(np.swapaxes(all_losses, 0, 2), 0, 1)
+
+        ''' Store predictions '''
+        log(logfile, 'Saving result to %s...\n' % outdir)
+
+        ''' Save results and predictions '''
+        all_valid.append(I_valid)
+        np.savez(npzfile, pred=out_preds_train, loss=out_losses, val=np.array(all_valid))
+
+        np.savez(npzfile_test, pred=out_preds_test)
+
+
 def main(argv=None):
     # Parse arguments
     global FLAGS
@@ -310,7 +431,8 @@ def main(argv=None):
     os.mkdir(outdir)
 
     try:
-        run(outdir)
+        # run(outdir)
+        mx_run(outdir)
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
