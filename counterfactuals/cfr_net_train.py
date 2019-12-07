@@ -8,6 +8,7 @@ import traceback
 
 from mxnet import gluon, autograd
 from mxnet.gluon import nn
+from scipy.stats import sem
 
 from counterfactuals.cfr.cfr_net import cfr_net, mx_cfr_net
 from counterfactuals.cfr.util import *
@@ -660,11 +661,123 @@ def mx_run(outdir):
                                                                                       test_score[0], test_score[1],
                                                                                       test_score[2]))
 
+    # Save means and stds NDArray values for inference
+    mx.nd.save(outdir + FLAGS.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
+               {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
+
+    # Export trained models
+    t1_net.export(outdir + FLAGS.architecture.lower() + "-ihdp-t1-net-predictions-" + str(train_experiments))
+    t0_net.export(outdir + FLAGS.architecture.lower() + "-ihdp-t0-net-predictions-" + str(train_experiments))
+
+    print('\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
+
+    means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
+    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+
+    means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
+    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}' \
+                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+
+    print(train_total_scores_str)
+    print(test_total_scores_str)
+
+    mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
+
+    with open(outdir + FLAGS.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
+              encoding="utf8") as text_file:
+        print(train_total_scores_str, "\n", train_total_scores_str, file=text_file)
+
+    return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
+            "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
+            "pehe": "{:.2f} ± {:.2f}".format(means[2], stds[2]),
+            "mean_duration": mean_duration}
+
+
+def mx_run_test():
+    # Set GPUs/CPUs
+    num_gpus = mx.context.num_gpus()
+    num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
+    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    batch_size_per_unit = int(FLAGS.batch_size_per_unit)  # mini-batch size
+    batch_size = batch_size_per_unit * max(num_gpus, 1)
+
+    # Load test dataset
+    test_dataset = load_data(FLAGS.data_dir + FLAGS.data_test, normalize=True)
+
+    # Load training means and stds
+    train_means_stds = mx.nd.load(FLAGS.results_dir + FLAGS.architecture.lower()
+                                  + "_means_stds_ihdp_" + str(FLAGS.experiments) + "_.nd")
+    train_means = train_means_stds['means']
+    train_stds = train_means_stds['stds']
+
+    t1_prefix = FLAGS.results_dir + FLAGS.architecture.lower() + "-ihdp-t1-net-predictions-" + str(
+        FLAGS.experiments) + "-"
+    t0_prefix = FLAGS.results_dir + FLAGS.architecture.lower() + "-ihdp-t0-net-predictions-" + str(
+        FLAGS.experiments) + "-"
+    t1_net = gluon.nn.SymbolBlock.imports(t1_prefix + "symbol.json",
+                                          ['data'],
+                                          t1_prefix + "0000.params",
+                                          ctx=ctx)
+    t0_net = gluon.nn.SymbolBlock.imports(t0_prefix + "symbol.json",
+                                          ['data'],
+                                          t0_prefix + "0000.params",
+                                          ctx=ctx)
+
+    # Calculate number of test experiments
+    test_experiments = np.min([test_dataset['x'].shape[2], len(train_means)])
+
+    # Initialize test score results
+    test_scores = np.zeros((test_experiments, 3))
+
+    # Test model
+    for test_experiment in range(test_experiments):
+        # Create testing dataset
+        x = test_dataset['x'][:, :, test_experiment]
+        t = np.reshape(test_dataset['t'][:, test_experiment], (-1, 1))
+        yf = test_dataset['yf'][:, test_experiment]
+        ycf = test_dataset['ycf'][:, test_experiment]
+        mu0 = test_dataset['mu0'][:, test_experiment]
+        mu1 = test_dataset['mu1'][:, test_experiment]
+
+        # With-in sample
+        test_evaluator = Evaluator(t, yf, ycf, mu0, mu1)
+
+        # Retrieve training mean and std
+        train_yf_m, train_yf_std = train_means[test_experiment].asnumpy(), train_stds[test_experiment].asnumpy()
+
+        # Test dataset
+        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(x))
+
+        # Test DataLoader
+        test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
+                                                     shuffle=False,
+                                                     num_workers=num_workers)
+
+        # Test model
+        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader, ctx)
+        y_t0, y_t1 = y_t0 * train_yf_std + train_yf_m, y_t1 * train_yf_std + train_yf_m
+        test_score = test_evaluator.get_metrics(y_t1, y_t0)
+        test_scores[test_experiment, :] = test_score
+
+        print(
+            '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f}'.format(test_experiment + 1,
+                                                                                               test_experiments,
+                                                                                               test_score[0],
+                                                                                               test_score[1],
+                                                                                               test_score[2]))
+
+    means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
+    print('test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
+          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+
 
 def main(argv=None):
     # Parse arguments
     global FLAGS
     FLAGS = get_cfr_args_parser().parse_args()
+
+    FLAGS.architecture = "cfr"
 
     # Create outdir if inexistent
     outdir_path = pathlib.Path(FLAGS.outdir)
@@ -677,7 +790,8 @@ def main(argv=None):
 
     try:
         # run(outdir)
-        mx_run(outdir)
+        # mx_run(outdir)
+        mx_run_test()
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
