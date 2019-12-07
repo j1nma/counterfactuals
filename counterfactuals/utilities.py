@@ -238,6 +238,12 @@ def get_parent_args_parser():
         default='results/ihdp'
     )
     parent_parser.add_argument(
+        "-rsd",
+        "--results_dir",
+        default='results/ihdp',
+        help="Only when testing, to later find mean, stds, params and symbol files."
+    )
+    parent_parser.add_argument(
         "-dd",
         "--data_dir",
         default='../data'
