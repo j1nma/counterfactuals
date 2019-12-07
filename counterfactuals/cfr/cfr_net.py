@@ -38,16 +38,6 @@ class cfr_net(object):
 
         self.variables[name] = var
 
-    def mx_add_variable(self, var, name):
-        ''' Adds variables to the internal track-keeper '''
-        basename = name
-        i = 0
-        while name in self.mx_variables:
-            name = '%s_%d' % (basename, i)  # @TODO: not consistent with TF internally if changed
-            i += 1
-
-        self.mx_variables[name] = var
-
     def _create_variable(self, var, name):
         ''' Create and adds variables to the internal track-keeper '''
 
@@ -55,26 +45,11 @@ class cfr_net(object):
         self._add_variable(var, name)
         return var
 
-    def mx_create_variable(self, initializer, name):
-        ''' Create and adds variables to the internal track-keeper '''
-
-        var = mx.sym.Variable(name=name, init=initializer)
-        self.mx_add_variable(var, name)
-        return var
-
     def _create_variable_with_weight_decay(self, initializer, name, wd):
         ''' Create and adds variables to the internal track-keeper
             and adds it to the list of weight decayed variables '''
         var = self._create_variable(initializer, name)
         self.wd_loss += wd * tf.nn.l2_loss(var)
-        return var
-
-    def mx_create_variable_with_weight_decay(self, initializer, name, wd):
-        ''' Create and adds variables to the internal track-keeper
-            and adds it to the list of weight decayed variables '''
-        var = self.mx_create_variable(initializer, name)
-        self.mx_wd_loss = self.mx_wd_loss + wd * mx.symbol.LinearRegressionOutput(var)
-
         return var
 
     def _build_graph(self, x, t, y_, p_t, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in, mx_do_out, mx_x,
@@ -329,84 +304,6 @@ class cfr_net(object):
         else:
             h_input = tf.concat(1, [rep, t])
             y, weights_out, weights_pred = self._build_output(h_input, dim_in + 1, dim_out, do_out, FLAGS)
-
-        return y, weights_out, weights_pred
-
-    def mx_build_output_graph(self, rep, t, dim_in, dim_out, do_out, FLAGS):
-        ''' Construct output/regression layers '''
-
-        if FLAGS.split_output:
-
-            # i0 = mx.nd.cast(mx.sym.where(t < 1)[:, 0], dtype='int32')
-            # i1 = mx.nd.cast(mx.sym.where(t > 0)[:, 0], dtype='int32')
-            i0 = mx.sym.cast(mx.sym.where(t < 1), dtype='int32')
-            i1 = mx.sym.cast(mx.sym.where(t > 0), dtype='int32')
-
-            rep0 = mx.sym.gather_nd(rep, i0)
-            rep1 = mx.sym.gather_nd(rep, i1)
-
-            y0, weights_out0, weights_pred0 = self.mx_build_output(rep0, dim_in, dim_out, do_out, FLAGS)
-            y1, weights_out1, weights_pred1 = self.mx_build_output(rep1, dim_in, dim_out, do_out, FLAGS)
-
-            # y = tf.dynamic_stitch([i0, i1], [y0, y1])
-            y = mx.sym.gather_nd(data=mx.sym.stack(y0, y1), indices=mx.sym.stack(i0, i1))
-            weights_out = weights_out0 + weights_out1
-            weights_pred = weights_pred0 + weights_pred1
-        else:
-            h_input = tf.concat(1, [rep, t])
-            y, weights_out, weights_pred = self._build_output(h_input, dim_in + 1, dim_out, do_out, FLAGS)
-
-        return y, weights_out, weights_pred
-
-    def mx_build_output(self, h_input, dim_in, dim_out, do_out, FLAGS):
-        h_out = [h_input]
-        dims = [dim_in] + ([dim_out] * FLAGS.reg_lay)
-
-        weights_out = []
-        biases_out = []
-
-        for i in range(0, FLAGS.reg_lay):
-            # initializer = mx.initializer.random.normal(scale=FLAGS.weight_init_scale / np.sqrt(dims[i]),
-            #                                            shape=(dims[i], dims[i + 1]))
-            initializer = mx.init.Normal(
-                FLAGS.weight_init_scale / np.sqrt(dims[i]))  # TODO what about shape from above?
-
-            wo = self.mx_create_variable_with_weight_decay(
-                initializer,
-                'w_out_%d' % i, 1.0)
-
-            weights_out.append(wo)
-
-            json_zeroes = json.dumps({"biases_out": mx.nd.zeros((1, dim_out)).asnumpy().tolist()})
-            biases_out.append(mx.sym.Variable(name="biases_out" + str(i), init=mx.init.Constant(json_zeroes)))
-            z = mx.symbol.dot(h_out[i], weights_out[i]) + biases_out[i]
-            # No batch norm on output because p_cf != p_f
-
-            h_out.append(self.mx_nonlin(z))
-            h_out[i + 1] = mx.symbol.Dropout(h_out[i + 1], p=1 - do_out)  # TODO, again, watchout with keep prob
-
-        # initializer = mx.initializer.random.normal(scale=FLAGS.weight_init_scale / np.sqrt(dim_out), shape=(dim_out, 1))
-        initializer = mx.init.Normal(FLAGS.weight_init_scale / np.sqrt(dim_out))  # TODO what about shape from above?
-        weights_pred = self.mx_create_variable(initializer, 'w_pred')
-
-        # bias_pred = self.mx_create_variable(tf.zeros([1]), 'b_pred')
-        json_zeroes = json.dumps({"biases_out": mx.nd.zeros((1)).asnumpy().tolist()})
-        bias_pred = self.mx_create_variable(mx.init.Constant(json_zeroes), 'b_pred')
-
-        if FLAGS.reg_lay == 0:
-            # self.mx_wd_loss += tf.nn.l2_loss(tf.slice(weights_pred, [0, 0], [dim_out - 1, 1]))  # don't penalize treatment coefficient
-            # l2_loss = mx.gluon.loss.L2Loss()
-            # TODO watchout tf size vs mx end
-            # TODO watchout tf.nn.l2_loss only computes tensor
-            self.mx_wd_loss += tf.nn.l2_loss(mx.symbol.slice(weights_pred,
-                                                             begin=(0, 0),
-                                                             end=(dim_out - 1, 1)))
-        else:
-            self.mx_wd_loss = self.mx_wd_loss + mx.symbol.LinearRegressionOutput(weights_pred)
-
-        ''' Construct linear classifier '''
-        h_pred = h_out[-1]
-        y = mx.sym.dot(h_pred, weights_pred) + bias_pred
 
         return y, weights_out, weights_pred
 

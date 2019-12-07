@@ -3,11 +3,17 @@ import os
 import pathlib
 import random
 import sys
+import time
 import traceback
+
+from mxnet import gluon, autograd
+from mxnet.gluon import nn
 
 from counterfactuals.cfr.cfr_net import cfr_net, mx_cfr_net
 from counterfactuals.cfr.util import *
-from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser
+from counterfactuals.evaluation import Evaluator
+from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser, \
+    split_data_in_train_valid_test, predict_treated_and_controlled_with_cfr, test_net_with_cfr
 
 FLAGS = 0
 
@@ -293,8 +299,75 @@ def run(outdir):
             np.savez(repfile_test, rep=reps_test)
 
 
+def ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
+    # Representation Layers
+    rep_net = nn.HybridSequential()
+    rep_net.add(nn.Dense(rep_hidden_size, activation='relu'),
+                nn.Dense(rep_hidden_size, activation='relu'),
+                nn.Dense(rep_hidden_size, activation='relu'))
+
+    # Hypothesis Layers for t = 1
+    t1_hyp_net = nn.HybridSequential()
+    t1_hyp_net.add(nn.Dense(hyp_hidden_size, activation='relu'),
+                   nn.Dense(hyp_hidden_size, activation='relu'),
+                   nn.Dense(hyp_hidden_size, activation='relu'),
+                   nn.Dense(1))
+
+    # Hypothesis Layers for t = 0
+    t0_hyp_net = nn.HybridSequential()
+    t0_hyp_net.add(nn.Dense(hyp_hidden_size, activation='relu'),
+                   nn.Dense(hyp_hidden_size, activation='relu'),
+                   nn.Dense(hyp_hidden_size, activation='relu'),
+                   nn.Dense(1))
+
+    return rep_net, t1_hyp_net, t0_hyp_net
+
+
+def symbol_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
+    # Representation Layers
+    data = mx.sym.Variable('data')
+    rep_fc1 = mx.sym.FullyConnected(data=data, name='rep_fc1', num_hidden=rep_hidden_size)
+    rep_elu1 = mx.sym.Activation(data=rep_fc1, name='rep_elu1', act_type="relu")
+    rep_fc2 = mx.sym.FullyConnected(data=rep_elu1, name='rep_fc2', num_hidden=rep_hidden_size)
+    rep_relu2 = mx.sym.Activation(data=rep_fc2, name='rep_relu2', act_type="relu")
+    rep_fc3 = mx.sym.FullyConnected(data=rep_relu2, name='rep_fc3', num_hidden=rep_hidden_size)
+    rep_relu3 = mx.sym.Activation(data=rep_fc3, name='rep_relu3', act_type="relu")
+
+    # Hypothesis Layers for t = 1
+    t1_hyp_fc1 = mx.sym.FullyConnected(data=rep_relu3, name='t1_hyp_fc1', num_hidden=hyp_hidden_size)
+    t1_hyp_relu1 = mx.sym.Activation(data=t1_hyp_fc1, name='t1_hyp_relu1', act_type="relu")
+    t1_hyp_fc2 = mx.sym.FullyConnected(data=t1_hyp_relu1, name='t1_hyp_fc2', num_hidden=hyp_hidden_size)
+    t1_hyp_relu2 = mx.sym.Activation(data=t1_hyp_fc2, name='t1_hyp_relu2', act_type="relu")
+    t1_hyp_fc3 = mx.sym.FullyConnected(data=t1_hyp_relu2, name='t1_hyp_fc3', num_hidden=hyp_hidden_size)
+    t1_hyp_relu3 = mx.sym.Activation(data=t1_hyp_fc3, name='t1_hyp_relu3', act_type="relu")
+    t1_hyp_fc4 = mx.sym.FullyConnected(data=t1_hyp_relu3, name='t1_hyp_fc4', num_hidden=1)
+
+    # Hypothesis Layers for t = 0
+    t0_hyp_fc1 = mx.sym.FullyConnected(data=rep_relu3, name='t0_hyp_fc1', num_hidden=hyp_hidden_size)
+    t0_hyp_relu1 = mx.sym.Activation(data=t0_hyp_fc1, name='t0_hyp_relu1', act_type="relu")
+    t0_hyp_fc2 = mx.sym.FullyConnected(data=t0_hyp_relu1, name='t0_hyp_fc2', num_hidden=hyp_hidden_size)
+    t0_hyp_relu2 = mx.sym.Activation(data=t0_hyp_fc2, name='t0_hyp_relu2', act_type="relu")
+    t0_hyp_fc3 = mx.sym.FullyConnected(data=t0_hyp_relu2, name='t0_hyp_fc3', num_hidden=hyp_hidden_size)
+    t0_hyp_relu3 = mx.sym.Activation(data=t0_hyp_fc3, name='t0_hyp_relu3', act_type="relu")
+    t0_hyp_fc4 = mx.sym.FullyConnected(data=t0_hyp_relu3, name='t0_hyp_fc4', num_hidden=1)
+
+    # group = mx.sym.Group([t1_hyp_fc4, t0_hyp_fc4])
+    # group.list_outputs()
+
+    t1_net = gluon.SymbolBlock(outputs=[t1_hyp_fc4], inputs=[data])
+    t0_net = gluon.SymbolBlock(outputs=[t0_hyp_fc4], inputs=[data])
+
+    return t1_net, t0_net
+
+
 def mx_run(outdir):
-    """ Runs an experiment and stores result in outdir """
+    # Hyperparameters
+    epochs = int(FLAGS.iterations)
+    learning_rate = float(FLAGS.learning_rate)
+    wd = float(FLAGS.weight_decay)
+    train_experiments = int(FLAGS.experiments)
+    learning_rate_factor = float(FLAGS.learning_rate_factor)
+    learning_rate_steps = int(FLAGS.learning_rate_steps)  # changes the learning rate for every n updates.
 
     ''' Set up paths and start log '''
     npzfile = outdir + 'result'
@@ -307,6 +380,13 @@ def mx_run(outdir):
     f.close()
     data_train = FLAGS.data_dir + FLAGS.data_train
     data_train_test = FLAGS.data_dir + FLAGS.data_test
+
+    # Set GPUs/CPUs
+    num_gpus = mx.context.num_gpus()
+    num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
+    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    batch_size_per_unit = int(FLAGS.batch_size_per_unit)  # mini-batch size
+    batch_size = batch_size_per_unit * max(num_gpus, 1)
 
     ''' Set random seeds '''
     random.seed(FLAGS.seed)
@@ -348,72 +428,237 @@ def mx_run(outdir):
     CFR = mx_cfr_net(FLAGS, mx_r_alpha, mx_r_lambda, mx_do_in, mx_do_out, dims, mx_do_in, mx_do_out, mx_x, mx_t, mx_y_,
                      mx_p)
 
-    ''' Set up optimizer '''
-    global_step = tf.Variable(0, trainable=False)
-    lr = tf.train.exponential_decay(FLAGS.learning_rate, global_step, \
-                                    NUM_ITERATIONS_PER_DECAY, FLAGS.learning_rate_factor, staircase=True)
+    # Neural Network Architecture for ITE estimation
+    # rep_net, t1_hyp_net, t0_hyp_net = ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
+    #                                                               hyp_hidden_size=FLAGS.dim_hyp)
 
-    # TODO
-    # opt = tf.train.AdamOptimizer(lr)
-    opt = tf.train.RMSPropOptimizer(lr, FLAGS.rms_prop_decay)
+    # Symbol Neural Network Architecture for ITE estimation
+    t1_net, t0_net = symbol_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
+                                                        hyp_hidden_size=FLAGS.dim_hyp)
 
-    train_step = opt.minimize(CFR.tot_loss, global_step=global_step)
+    # Load datasets
+    train_dataset = load_data(FLAGS.data_dir + FLAGS.data_train, normalize=True)
 
-    ''' Set up for saving variables '''
-    all_losses = []
-    all_preds_train = []
-    all_preds_test = []
-    all_valid = []
+    # Instantiate net
+    t1_net.initialize(ctx=ctx)
+    t1_net.hybridize()  # hybridize for better performance
 
-    all_preds_test = []
+    t0_net.initialize(ctx=ctx)
+    t0_net.hybridize()  # hybridize for better performance
 
-    n_experiments = FLAGS.experiments
+    # rep_net.initialize(init=mx.init.Xavier(), ctx=ctx)
+    # rep_net.hybridize()  # hybridize for better performance
+    # t1_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
+    # t1_hyp_net.hybridize()  # hybridize for better performance
+    # t0_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
+    # t0_hyp_net.hybridize()  # hybridize for better performance
 
-    ''' Run for all repeated experiments '''
-    for i_exp in range(1, n_experiments + 1):
+    # Metric, Loss and Optimizer
+    rmse_metric = mx.metric.RMSE()
+    l2_loss = gluon.loss.L2Loss()
+    scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
+                                                base_lr=learning_rate)
+    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)  # TODO check args
+    # trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
+    t1_trainer = gluon.Trainer(t1_net.collect_params(), optimizer=optimizer)
+    t0_trainer = gluon.Trainer(t0_net.collect_params(), optimizer=optimizer)
 
-        log(logfile, 'Training on experiment %d/%d...' % (i_exp, n_experiments))
+    # Initialize train score results
+    train_scores = np.zeros((train_experiments, 3))
 
-        ''' Load Data)'''
+    # Initialize train experiment durations
+    train_durations = np.zeros((train_experiments, 1))
 
-        if i_exp == 1 or FLAGS.experiments > 1:
-            D_exp = {}
-            D_exp['x'] = D['x'][:, :, i_exp - 1]
-            D_exp['t'] = D['t'][:, i_exp - 1:i_exp]
-            D_exp['yf'] = D['yf'][:, i_exp - 1:i_exp]
-            D_exp['ycf'] = D['ycf'][:, i_exp - 1:i_exp]
+    # Initialize test score results
+    test_scores = np.zeros((train_experiments, 3))
 
-            D_exp_test = {}
-            D_exp_test['x'] = D_test['x'][:, :, i_exp - 1]
-            D_exp_test['t'] = D_test['t'][:, i_exp - 1:i_exp]
-            D_exp_test['yf'] = D_test['yf'][:, i_exp - 1:i_exp]
-            D_exp_test['ycf'] = D_test['ycf'][:, i_exp - 1:i_exp]
+    # Train experiments means and stds
+    means = np.array([])
+    stds = np.array([])
 
-        ''' Split into training and validation sets '''
-        I_train, I_valid = validation_split(D_exp, FLAGS.val_part)
-        # TODO: replace?
-        # I_train, I_valid = train_test_split(np.arange(D_exp['x'].shape[0]), test_size=FLAGS.val_part,
-        #                                     random_state=FLAGS.seed)
+    # Train
+    for train_experiment in range(train_experiments):
 
-        ''' Run training loop '''
+        # Create training dataset
+        x = train_dataset['x'][:, :, train_experiment]
+        t = np.reshape(train_dataset['t'][:, train_experiment], (-1, 1))
+        yf = train_dataset['yf'][:, train_experiment]
+        ycf = train_dataset['ycf'][:, train_experiment]
+        mu0 = train_dataset['mu0'][:, train_experiment]
+        mu1 = train_dataset['mu1'][:, train_experiment]
 
+        train, valid, test = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
 
-        ''' Collect all reps '''
+        # With-in sample
+        train_evaluator = Evaluator(np.concatenate([train['t'], valid['t']]),
+                                    np.concatenate([train['yf'], valid['yf']]),
+                                    y_cf=np.concatenate([train['ycf'], valid['ycf']], axis=0),
+                                    mu0=np.concatenate([train['mu0'], valid['mu0']], axis=0),
+                                    mu1=np.concatenate([train['mu1'], valid['mu1']], axis=0))
+        test_evaluator = Evaluator(test['t'], test['yf'], test['ycf'], test['mu0'], test['mu1'])
 
+        # Normalize yf
+        yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
+        train['yf'] = (train['yf'] - yf_m) / yf_std
+        valid['yf'] = (valid['yf'] - yf_m) / yf_std
+        test['yf'] = (test['yf'] - yf_m) / yf_std
 
-        ''' Fix shape for output (n_units, dim, n_reps, n_outputs) '''
-        out_preds_train = np.swapaxes(np.swapaxes(all_preds_train, 1, 3), 0, 2)
-        out_preds_test = np.swapaxes(np.swapaxes(all_preds_test, 1, 3), 0, 2)
-        out_losses = np.swapaxes(np.swapaxes(all_losses, 0, 2), 0, 1)
+        # Save mean and std
+        means = np.append(means, yf_m)
+        stds = np.append(stds, yf_std)
 
-        ''' Store predictions '''
-        log(logfile, 'Saving result to %s...\n' % outdir)
+        # Train dataset
+        factual_features = np.hstack((train['x'], train['t']))
+        train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(factual_features), mx.nd.array(train['yf']))
 
-        ''' Save results and predictions '''
-        all_valid.append(I_valid)
-        np.savez(npzfile, pred=out_preds_train, loss=out_losses, val=np.array(all_valid))
+        # With-in sample
+        train_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(np.concatenate([train['x'], valid['x']])))
 
-        np.savez(npzfile_test, pred=out_preds_test)
+        # Valid dataset
+        valid_factual_features = np.hstack((valid['x'], valid['t']))
+        valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid_factual_features), mx.nd.array(valid['yf']))
+
+        # Test dataset
+        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(test['x']))
+
+        # Train DataLoader
+        train_factual_loader = gluon.data.DataLoader(train_factual_dataset, batch_size=batch_size, shuffle=True,
+                                                     num_workers=num_workers)
+        train_rmse_ite_loader = gluon.data.DataLoader(train_rmse_ite_dataset, batch_size=batch_size,
+                                                      shuffle=False,
+                                                      num_workers=num_workers)
+
+        # Valid DataLoader
+        valid_factual_loader = gluon.data.DataLoader(valid_factual_dataset, batch_size=batch_size, shuffle=False,
+                                                     num_workers=num_workers)
+
+        # Test DataLoader
+        test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
+                                                     shuffle=False,
+                                                     num_workers=num_workers)
+
+        num_batch = len(train_factual_loader)
+
+        train_start = time.time()
+
+        # Train model
+        for epoch in range(1, epochs + 1):  # start with epoch 1 for easier learning rate calculation
+
+            start = time.time()
+            train_loss = 0
+            rmse_metric.reset()
+
+            for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
+                # Get data and labels into slices and copy each slice into a context.
+                batch_f_features = gluon.utils.split_and_load(batch_f_features, ctx_list=ctx, even_split=False)
+                batch_yf = gluon.utils.split_and_load(batch_yf, ctx_list=ctx, even_split=False)
+
+                t1_idx = np.where(batch_f_features[0][:, -1] == 1)[0]
+                t0_idx = np.where(batch_f_features[0][:, -1] == 0)[0]
+
+                # Forward
+                with autograd.record():
+                    if t1_idx.shape[0] != 0:
+                        t1_outputs = t1_net(batch_f_features[0][t1_idx])
+                        t1_loss = l2_loss(t1_outputs, batch_yf[0][t1_idx])
+
+                    if t0_idx.shape[0] != 0:
+                        t0_outputs = t0_net(batch_f_features[0][t0_idx])
+                        t0_loss = l2_loss(t0_outputs, batch_yf[0][t0_idx])
+
+                # for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
+                #     # Get data and labels into slices and copy each slice into a context.
+                #     batch_f_features = gluon.utils.split_and_load(batch_f_features, ctx_list=ctx, even_split=False)
+                #     batch_yf = gluon.utils.split_and_load(batch_yf, ctx_list=ctx, even_split=False)
+                #
+                #     t1_idx = np.where(batch_f_features[0][:, -1] == 1)[0]
+                #     t0_idx = np.where(batch_f_features[0][:, -1] == 0)[0]
+                #
+                #     # Forward
+                #     with autograd.record():
+                #         outputs = [rep_net(x) for x in batch_f_features]
+                #
+                #         if t1_idx.shape[0] != 0:
+                #             t1_outputs = t1_hyp_net(outputs[0][t1_idx])
+                #             t1_loss = l2_loss(t1_outputs, batch_yf[0][t1_idx])
+                #
+                #         if t0_idx.shape[0] != 0:
+                #             t0_outputs = t0_hyp_net(outputs[0][t0_idx])
+                #             t0_loss = l2_loss(t0_outputs, batch_yf[0][t0_idx])
+                #
+                if t1_idx.shape[0] != 0 and t0_idx.shape[0] != 0:
+                    loss = mx.ndarray.concat(t1_loss, t0_loss, dim=0)
+                    losses = [t1_loss, t0_loss]
+                    preds = mx.ndarray.concat(t1_outputs, t0_outputs, dim=0)
+
+                if t1_idx.shape[0] == 0:
+                    loss = t0_loss
+                    losses = [t0_loss]
+                    preds = t0_outputs
+
+                if t0_idx.shape[0] == 0:
+                    loss = t1_loss
+                    losses = [t1_loss]
+                    preds = t1_outputs
+
+                # loss = t1_loss.sum() + t0_loss.sum()
+                # # Backward
+                # for l in loss:
+                #     l.backward()
+
+                # loss = t1_loss.sum() + t0_loss.sum()
+                # loss.backward(retain_graph=True)
+
+                # t1_loss.backward()
+                # t0_loss.backward()
+
+                autograd.backward(losses)
+
+                # Optimize
+                if t1_idx.shape[0] != 0 and t0_idx.shape[0] != 0:
+                    t1_trainer.step(batch_size)
+                    t0_trainer.step(batch_size)
+
+                if t1_idx.shape[0] == 0:
+                    t0_trainer.step(batch_size)
+
+                if t0_idx.shape[0] == 0:
+                    t1_trainer.step(batch_size)
+
+                train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
+                rmse_metric.update(batch_yf[0], preds)
+
+            _, train_rmse_factual = rmse_metric.get()
+            train_loss /= num_batch
+            _, valid_rmse_factual = test_net_with_cfr(t1_net, t0_net, valid_factual_loader, ctx)
+
+            if epoch % 3 == 0:
+                print(
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | t1-learning-rate: '
+                    '%.3E | t0-learning-rate: %.3E' % (
+                        epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, t1_trainer.learning_rate,
+                        t0_trainer.learning_rate))
+
+        train_durations[train_experiment, :] = time.time() - train_start
+
+        # Test model
+        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(t1_net, t0_net, train_rmse_ite_loader, ctx)
+        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # TODO normalize checkup before
+        train_score = train_evaluator.get_metrics(y_t1, y_t0)
+        train_scores[train_experiment, :] = train_score
+
+        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader, ctx)
+        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # TODO normalize checkup before
+        test_score = test_evaluator.get_metrics(y_t1, y_t0)
+        test_scores[train_experiment, :] = test_score
+
+        print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
+                                                                                      train_experiments,
+                                                                                      train_score[0], train_score[1],
+                                                                                      train_score[2],
+                                                                                      test_score[0], test_score[1],
+                                                                                      test_score[2]))
 
 
 def main(argv=None):
@@ -440,4 +685,4 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    tf.app.run()
+    main()
