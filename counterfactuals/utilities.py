@@ -4,6 +4,7 @@ import mxnet as mx
 import numpy as np
 from mxnet import gluon, autograd
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 
 def validation_split(D_exp, val_fraction):
@@ -30,7 +31,7 @@ def log(logfile, str):
     print(str)
 
 
-def load_data(filename):
+def load_data(filename, normalize=False):
     if filename[-3:] != 'npz':
         raise Exception("Data file format is not npz.")
 
@@ -46,12 +47,13 @@ def load_data(filename):
     data['n'] = data['x'].shape[0]
 
     # TODO: normalize input option
-    # Adjust binary feature at index 13: {1, 2} -> {0, 1}
-    # data['x'][:, 13] -= 1
+    if normalize:
+        # Adjust binary feature at index 13: {1, 2} -> {0, 1}
+        data['x'][:, 13] -= 1
 
-    # Normalize the continuous features
-    # for experiment in range(data['x'][:, :6, :].shape[2]):
-    #     data['x'][:, :6, experiment] = StandardScaler().fit_transform(data['x'][:, :6, experiment])
+        # Normalize the continuous features
+        for experiment in range(data['x'][:, :6, :].shape[2]):
+            data['x'][:, :6, experiment] = StandardScaler().fit_transform(data['x'][:, :6, experiment])
 
     return data
 
@@ -100,6 +102,37 @@ def test_net(net, test_data, ctx):
     return metric.get()
 
 
+def test_net_with_cfr(t1_net, t0_net, test_data, ctx):
+    """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
+    metric = mx.metric.RMSE()
+    metric.reset()
+    for i, (data, label) in enumerate(test_data):
+        data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
+        label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+
+        t1_idx = np.where(data[0][:, -1] == 1)[0]
+        t0_idx = np.where(data[0][:, -1] == 0)[0]
+
+        with autograd.predict_mode():
+            if t1_idx.shape[0] != 0:
+                t1_outputs = t1_net(data[0][t1_idx])
+
+            if t0_idx.shape[0] != 0:
+                t0_outputs = t0_net(data[0][t0_idx])
+
+        if t1_idx.shape[0] != 0 and t0_idx.shape[0] != 0:
+            preds = mx.ndarray.concat(t1_outputs, t0_outputs, dim=0)
+
+        if t1_idx.shape[0] == 0:
+            preds = t0_outputs
+
+        if t0_idx.shape[0] == 0:
+            preds = t1_outputs
+
+        metric.update(label[0], preds)
+    return metric.get()
+
+
 def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
     """ Predict treated and controlled outcomes. """
 
@@ -116,6 +149,26 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
 
         y_t0 = np.append(y_t0, t0_controlled_predicted)
         y_t1 = np.append(y_t1, t1_treated_predicted)
+
+    return y_t0, y_t1
+
+
+def predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader, ctx):
+    """ Predict treated and controlled outcomes. """
+
+    y_t1 = np.array([])
+    y_t0 = np.array([])
+    for i, (x) in enumerate(test_rmse_ite_loader):
+        x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
+
+        t1_features = mx.nd.concat(x[0], mx.nd.ones((len(x[0]), 1)))
+        t0_features = mx.nd.concat(x[0], mx.nd.zeros((len(x[0]), 1)))
+
+        t1_treated_predicted = t1_net(t1_features)
+        t0_controlled_predicted = t0_net(t0_features)
+
+        y_t1 = np.append(y_t1, t1_treated_predicted)
+        y_t0 = np.append(y_t0, t0_controlled_predicted)
 
     return y_t0, y_t1
 
@@ -174,6 +227,12 @@ def get_parent_args_parser():
         help="Learning rate factor."
     )
     parent_parser.add_argument(
+        "-ls",
+        "--learning_rate_steps",
+        default=2000,
+        help="Changes the learning rate for every given number of updates."
+    )
+    parent_parser.add_argument(
         "-od",
         "--outdir",
         default='results/ihdp'
@@ -216,18 +275,18 @@ def get_parent_args_parser():
         type=int,
         help="Mini-batch size per processing unit."
     )
+    parent_parser.add_argument(
+        "-wd",
+        "--weight_decay",
+        default=0.0001,
+        help="L2 weight decay lambda."
+    )
 
     return parent_parser
 
 
 def get_nn_args_parser():
     parser = argparse.ArgumentParser(fromfile_prefix_chars='@', parents=[get_parent_args_parser()])
-    parser.add_argument(
-        "-wd",
-        "--weight_decay",
-        default=0.0001,
-        help="L2 weight decay lambda."
-    )
     parser.add_argument(
         "-is",
         "--input_size",
@@ -239,12 +298,6 @@ def get_nn_args_parser():
         "--hidden_size",
         default=25,
         help="Number of hidden nodes per layer."
-    )
-    parser.add_argument(
-        "-ls",
-        "--learning_rate_steps",
-        default=2000,
-        help="Changes the learning rate for every given number of updates."
     )
     parser.add_argument(
         "-a",
