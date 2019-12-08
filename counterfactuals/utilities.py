@@ -107,18 +107,21 @@ def test_net_with_cfr(t1_net, t0_net, test_data, ctx):
     metric = mx.metric.RMSE()
     metric.reset()
     for i, (data, label) in enumerate(test_data):
-        data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
-        label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+        # TODO if rollback to this, use data like data[0], label like label[0]
+        # data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
+        # label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+        data = data.as_in_context(ctx)
+        label = label.as_in_context(ctx)
 
-        t1_idx = np.where(data[0][:, -1] == 1)[0]
-        t0_idx = np.where(data[0][:, -1] == 0)[0]
+        t1_idx = np.where(data[:, -1] == 1)[0]
+        t0_idx = np.where(data[:, -1] == 0)[0]
 
         with autograd.predict_mode():
             if t1_idx.shape[0] != 0:
-                t1_outputs = t1_net(data[0][t1_idx])
+                t1_outputs = t1_net(data[t1_idx])
 
             if t0_idx.shape[0] != 0:
-                t0_outputs = t0_net(data[0][t0_idx])
+                t0_outputs = t0_net(data[t0_idx])
 
         if t1_idx.shape[0] != 0 and t0_idx.shape[0] != 0:
             preds = mx.ndarray.concat(t1_outputs, t0_outputs, dim=0)
@@ -129,7 +132,7 @@ def test_net_with_cfr(t1_net, t0_net, test_data, ctx):
         if t0_idx.shape[0] == 0:
             preds = t1_outputs
 
-        metric.update(label[0], preds)
+        metric.update(label, preds)
     return metric.get()
 
 
@@ -159,10 +162,12 @@ def predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader
     y_t1 = np.array([])
     y_t0 = np.array([])
     for i, (x) in enumerate(test_rmse_ite_loader):
-        x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
+        # TODO if rollback to this, use data like x[0]
+        # x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
+        x = x.as_in_context(ctx)
 
-        t1_features = mx.nd.concat(x[0], mx.nd.ones((len(x[0]), 1)))
-        t0_features = mx.nd.concat(x[0], mx.nd.zeros((len(x[0]), 1)))
+        t1_features = mx.nd.concat(x, mx.nd.ones((len(x), 1)))
+        t0_features = mx.nd.concat(x, mx.nd.zeros((len(x), 1)))
 
         t1_treated_predicted = t1_net(t1_features)
         t0_controlled_predicted = t0_net(t0_features)

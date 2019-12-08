@@ -385,7 +385,8 @@ def mx_run(outdir):
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
     num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
-    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]  # todo
+    ctx = mx.gpu() if mx.context.num_gpus() > 0 else mx.cpu()
     batch_size_per_unit = int(FLAGS.batch_size_per_unit)  # mini-batch size
     batch_size = batch_size_per_unit * max(num_gpus, 1)
 
@@ -540,6 +541,9 @@ def mx_run(outdir):
 
         num_batch = len(train_factual_loader)
 
+        # Compute treatment probability
+        p_treated = np.mean(train['t'])
+
         train_start = time.time()
 
         # Train model
@@ -551,83 +555,55 @@ def mx_run(outdir):
 
             for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
                 # Get data and labels into slices and copy each slice into a context.
-                batch_f_features = gluon.utils.split_and_load(batch_f_features, ctx_list=ctx, even_split=False)
-                batch_yf = gluon.utils.split_and_load(batch_yf, ctx_list=ctx, even_split=False)
+                # batch_f_features = gluon.utils.split_and_load(batch_f_features, ctx_list=ctx, even_split=False)
+                # batch_yf = gluon.utils.split_and_load(batch_yf, ctx_list=ctx, even_split=False)
+                batch_f_features = batch_f_features.as_in_context(ctx)
+                batch_yf = batch_yf.as_in_context(ctx)
 
-                t1_idx = np.where(batch_f_features[0][:, -1] == 1)[0]
-                t0_idx = np.where(batch_f_features[0][:, -1] == 0)[0]
+                # Get treatment and control indices
+                t = batch_f_features[:, -1]
+                t1_idx = np.where(t == 1)[0]
+                t0_idx = np.where(t == 0)[0]
 
-                # Forward
+                # Compute sample reweighing
+                if FLAGS.reweight_sample:
+                    w_t = t / (2 * p_treated)
+                    w_c = (1 - t) / (2 * 1 - p_treated)
+                    sample_weight = w_t + w_c
+                else:
+                    sample_weight = 1.0
+
+                # Initialize outputs
+                outputs = np.zeros(batch_yf.shape)
+
+                # Forward T1
                 with autograd.record():
                     if t1_idx.shape[0] != 0:
-                        t1_outputs = t1_net(batch_f_features[0][t1_idx])
-                        t1_loss = l2_loss(t1_outputs, batch_yf[0][t1_idx])
+                        t1_outputs = t1_net(batch_f_features[t1_idx])
+                        np.put(outputs, t1_idx, t1_outputs.asnumpy())
+                        t1_loss = l2_loss(t1_outputs, batch_yf[t1_idx], sample_weight[t1_idx])
+                    t1_loss.backward()
 
+                if t1_idx.shape[0] != 0:
+                    t1_trainer.step(batch_size)
+
+                # Forward T0
+                with autograd.record():
                     if t0_idx.shape[0] != 0:
-                        t0_outputs = t0_net(batch_f_features[0][t0_idx])
-                        t0_loss = l2_loss(t0_outputs, batch_yf[0][t0_idx])
+                        t0_outputs = t0_net(batch_f_features[t0_idx])
+                        np.put(outputs, t0_idx, t0_outputs.asnumpy())
+                        t0_loss = l2_loss(t0_outputs, batch_yf[t0_idx], sample_weight[t0_idx])
+                    t0_loss.backward()
 
-                # for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
-                #     # Get data and labels into slices and copy each slice into a context.
-                #     batch_f_features = gluon.utils.split_and_load(batch_f_features, ctx_list=ctx, even_split=False)
-                #     batch_yf = gluon.utils.split_and_load(batch_yf, ctx_list=ctx, even_split=False)
-                #
-                #     t1_idx = np.where(batch_f_features[0][:, -1] == 1)[0]
-                #     t0_idx = np.where(batch_f_features[0][:, -1] == 0)[0]
-                #
-                #     # Forward
-                #     with autograd.record():
-                #         outputs = [rep_net(x) for x in batch_f_features]
-                #
-                #         if t1_idx.shape[0] != 0:
-                #             t1_outputs = t1_hyp_net(outputs[0][t1_idx])
-                #             t1_loss = l2_loss(t1_outputs, batch_yf[0][t1_idx])
-                #
-                #         if t0_idx.shape[0] != 0:
-                #             t0_outputs = t0_hyp_net(outputs[0][t0_idx])
-                #             t0_loss = l2_loss(t0_outputs, batch_yf[0][t0_idx])
-                #
-                if t1_idx.shape[0] != 0 and t0_idx.shape[0] != 0:
-                    loss = mx.ndarray.concat(t1_loss, t0_loss, dim=0)
-                    losses = [t1_loss, t0_loss]
-                    preds = mx.ndarray.concat(t1_outputs, t0_outputs, dim=0)
-
-                if t1_idx.shape[0] == 0:
-                    loss = t0_loss
-                    losses = [t0_loss]
-                    preds = t0_outputs
-
-                if t0_idx.shape[0] == 0:
-                    loss = t1_loss
-                    losses = [t1_loss]
-                    preds = t1_outputs
-
-                # loss = t1_loss.sum() + t0_loss.sum()
-                # # Backward
-                # for l in loss:
-                #     l.backward()
-
-                # loss = t1_loss.sum() + t0_loss.sum()
-                # loss.backward(retain_graph=True)
-
-                # t1_loss.backward()
-                # t0_loss.backward()
-
-                autograd.backward(losses)
-
-                # Optimize
-                if t1_idx.shape[0] != 0 and t0_idx.shape[0] != 0:
-                    t1_trainer.step(batch_size)
+                if t0_idx.shape[0] != 0:
                     t0_trainer.step(batch_size)
 
-                if t1_idx.shape[0] == 0:
-                    t0_trainer.step(batch_size)
+                loss = np.zeros(batch_yf.shape)
+                np.put(loss, t1_idx, t1_loss.asnumpy())
+                np.put(loss, t0_idx, t0_loss.asnumpy())
 
-                if t0_idx.shape[0] == 0:
-                    t1_trainer.step(batch_size)
-
-                train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
-                rmse_metric.update(batch_yf[0], preds)
+                train_loss += loss.mean()
+                rmse_metric.update(batch_yf, mx.nd.array(outputs))
 
             _, train_rmse_factual = rmse_metric.get()
             train_loss /= num_batch
@@ -762,10 +738,10 @@ def mx_run_test():
 
         print(
             '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f}'.format(test_experiment + 1,
-                                                                                               test_experiments,
-                                                                                               test_score[0],
-                                                                                               test_score[1],
-                                                                                               test_score[2]))
+                                                                                              test_experiments,
+                                                                                              test_score[0],
+                                                                                              test_score[1],
+                                                                                              test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
     print('test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
@@ -790,8 +766,8 @@ def main(argv=None):
 
     try:
         # run(outdir)
-        # mx_run(outdir)
-        mx_run_test()
+        mx_run(outdir)
+        # mx_run_test()
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
