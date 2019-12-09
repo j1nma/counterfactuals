@@ -102,7 +102,7 @@ def test_net(net, test_data, ctx):
     return metric.get()
 
 
-def test_net_with_cfr(t1_net, t0_net, test_data, ctx):
+def test_net_with_cfr(net, test_data, ctx):
     """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
     metric = mx.metric.RMSE()
     metric.reset()
@@ -116,23 +116,18 @@ def test_net_with_cfr(t1_net, t0_net, test_data, ctx):
         t1_idx = np.where(data[:, -1] == 1)[0]
         t0_idx = np.where(data[:, -1] == 0)[0]
 
+        # Initialize outputs
+        predictions = np.zeros(label.shape)
+
         with autograd.predict_mode():
+            t1_o, t0_o, rep_o = net(data)
+
             if t1_idx.shape[0] != 0:
-                t1_outputs = t1_net(data[t1_idx])
+                np.put(predictions, t1_idx, t1_o[t1_idx].asnumpy())
 
-            if t0_idx.shape[0] != 0:
-                t0_outputs = t0_net(data[t0_idx])
+            np.put(predictions, t0_idx, t0_o[t0_idx].asnumpy())
 
-        if t1_idx.shape[0] != 0 and t0_idx.shape[0] != 0:
-            preds = mx.ndarray.concat(t1_outputs, t0_outputs, dim=0)
-
-        if t1_idx.shape[0] == 0:
-            preds = t0_outputs
-
-        if t0_idx.shape[0] == 0:
-            preds = t1_outputs
-
-        metric.update(label, preds)
+        metric.update(label, mx.nd.array(predictions))
     return metric.get()
 
 
@@ -147,8 +142,9 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
         t0_features = mx.nd.concat(x[0], mx.nd.zeros((len(x[0]), 1)))
         t1_features = mx.nd.concat(x[0], mx.nd.ones((len(x[0]), 1)))
 
-        t0_controlled_predicted = net(t0_features)
-        t1_treated_predicted = net(t1_features)
+        with autograd.predict_mode():
+            t0_controlled_predicted = net(t0_features)
+            t1_treated_predicted = net(t1_features)
 
         y_t0 = np.append(y_t0, t0_controlled_predicted)
         y_t1 = np.append(y_t1, t1_treated_predicted)
@@ -156,11 +152,12 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
-def predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader, ctx):
+def predict_treated_and_controlled_with_cfr(net, test_rmse_ite_loader, ctx):
     """ Predict treated and controlled outcomes. """
 
     y_t1 = np.array([])
     y_t0 = np.array([])
+
     for i, (x) in enumerate(test_rmse_ite_loader):
         # TODO if rollback to this, use data like x[0]
         # x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
@@ -169,8 +166,11 @@ def predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader
         t1_features = mx.nd.concat(x, mx.nd.ones((len(x), 1)))
         t0_features = mx.nd.concat(x, mx.nd.zeros((len(x), 1)))
 
-        t1_treated_predicted = t1_net(t1_features)
-        t0_controlled_predicted = t0_net(t0_features)
+        with autograd.predict_mode():
+            t1_o, _, _ = net(t1_features)
+            _, t0_o, _ = net(t0_features)
+            t1_treated_predicted = t1_o
+            t0_controlled_predicted = t0_o
 
         y_t1 = np.append(y_t1, t1_treated_predicted)
         y_t0 = np.append(y_t0, t0_controlled_predicted)
