@@ -334,6 +334,46 @@ def symbol_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
     rep_fc3 = mx.sym.FullyConnected(data=rep_relu2, name='rep_fc3', num_hidden=rep_hidden_size)
     rep_relu3 = mx.sym.Activation(data=rep_fc3, name='rep_relu3', act_type="relu")
 
+    rep_output = mx.sym.Variable('rep_output')
+
+    # Hypothesis Layers for t = 1
+    t1_hyp_fc1 = mx.sym.FullyConnected(data=rep_output, name='t1_hyp_fc1', num_hidden=hyp_hidden_size)
+    t1_hyp_relu1 = mx.sym.Activation(data=t1_hyp_fc1, name='t1_hyp_relu1', act_type="relu")
+    t1_hyp_fc2 = mx.sym.FullyConnected(data=t1_hyp_relu1, name='t1_hyp_fc2', num_hidden=hyp_hidden_size)
+    t1_hyp_relu2 = mx.sym.Activation(data=t1_hyp_fc2, name='t1_hyp_relu2', act_type="relu")
+    t1_hyp_fc3 = mx.sym.FullyConnected(data=t1_hyp_relu2, name='t1_hyp_fc3', num_hidden=hyp_hidden_size)
+    t1_hyp_relu3 = mx.sym.Activation(data=t1_hyp_fc3, name='t1_hyp_relu3', act_type="relu")
+    t1_hyp_fc4 = mx.sym.FullyConnected(data=t1_hyp_relu3, name='t1_hyp_fc4', num_hidden=1)
+
+    # Hypothesis Layers for t = 0
+    t0_hyp_fc1 = mx.sym.FullyConnected(data=rep_output, name='t0_hyp_fc1', num_hidden=hyp_hidden_size)
+    t0_hyp_relu1 = mx.sym.Activation(data=t0_hyp_fc1, name='t0_hyp_relu1', act_type="relu")
+    t0_hyp_fc2 = mx.sym.FullyConnected(data=t0_hyp_relu1, name='t0_hyp_fc2', num_hidden=hyp_hidden_size)
+    t0_hyp_relu2 = mx.sym.Activation(data=t0_hyp_fc2, name='t0_hyp_relu2', act_type="relu")
+    t0_hyp_fc3 = mx.sym.FullyConnected(data=t0_hyp_relu2, name='t0_hyp_fc3', num_hidden=hyp_hidden_size)
+    t0_hyp_relu3 = mx.sym.Activation(data=t0_hyp_fc3, name='t0_hyp_relu3', act_type="relu")
+    t0_hyp_fc4 = mx.sym.FullyConnected(data=t0_hyp_relu3, name='t0_hyp_fc4', num_hidden=1)
+
+    # group = mx.sym.Group([t1_hyp_fc4, t0_hyp_fc4])
+    # group.list_outputs()
+
+    rep_net = gluon.SymbolBlock(outputs=[rep_relu3], inputs=[data])
+    t1_net = gluon.SymbolBlock(outputs=[t1_hyp_fc4], inputs=[rep_output])
+    t0_net = gluon.SymbolBlock(outputs=[t0_hyp_fc4], inputs=[rep_output])
+
+    return rep_net, t1_net, t0_net
+
+
+def symbol_group_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
+    # Representation Layers
+    data = mx.sym.Variable('data')
+    rep_fc1 = mx.sym.FullyConnected(data=data, name='rep_fc1', num_hidden=rep_hidden_size)
+    rep_elu1 = mx.sym.Activation(data=rep_fc1, name='rep_elu1', act_type="relu")
+    rep_fc2 = mx.sym.FullyConnected(data=rep_elu1, name='rep_fc2', num_hidden=rep_hidden_size)
+    rep_relu2 = mx.sym.Activation(data=rep_fc2, name='rep_relu2', act_type="relu")
+    rep_fc3 = mx.sym.FullyConnected(data=rep_relu2, name='rep_fc3', num_hidden=rep_hidden_size)
+    rep_relu3 = mx.sym.Activation(data=rep_fc3, name='rep_relu3', act_type="relu")
+
     # Hypothesis Layers for t = 1
     t1_hyp_fc1 = mx.sym.FullyConnected(data=rep_relu3, name='t1_hyp_fc1', num_hidden=hyp_hidden_size)
     t1_hyp_relu1 = mx.sym.Activation(data=t1_hyp_fc1, name='t1_hyp_relu1', act_type="relu")
@@ -355,10 +395,9 @@ def symbol_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
     # group = mx.sym.Group([t1_hyp_fc4, t0_hyp_fc4])
     # group.list_outputs()
 
-    t1_net = gluon.SymbolBlock(outputs=[t1_hyp_fc4], inputs=[data])
-    t0_net = gluon.SymbolBlock(outputs=[t0_hyp_fc4], inputs=[data])
+    rep_net = gluon.SymbolBlock(outputs=[t1_hyp_fc4, t0_hyp_fc4, rep_relu3], inputs=[data])
 
-    return t1_net, t0_net
+    return rep_net
 
 
 def mx_run(outdir):
@@ -370,12 +409,6 @@ def mx_run(outdir):
     learning_rate_factor = float(FLAGS.learning_rate_factor)
     learning_rate_steps = int(FLAGS.learning_rate_steps)  # changes the learning rate for every n updates.
 
-    ''' Set up paths and start log '''
-    npzfile = outdir + 'result'
-    npzfile_test = outdir + 'result.test'
-    outform = outdir + 'y_pred'
-    outform_test = outdir + 'y_pred.test'
-    lossform = outdir + 'loss'
     logfile = outdir + 'log.txt'
     f = open(logfile, 'w')
     f.close()
@@ -385,7 +418,6 @@ def mx_run(outdir):
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
     num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
-    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]  # todo
     ctx = mx.gpu() if mx.context.num_gpus() > 0 else mx.cpu()
     batch_size_per_unit = int(FLAGS.batch_size_per_unit)  # mini-batch size
     batch_size = batch_size_per_unit * max(num_gpus, 1)
@@ -408,48 +440,39 @@ def mx_run(outdir):
     log(logfile, 'Training data: ' + datapath)
     log(logfile, 'Test data:     ' + datapath_test)
     D = load_data(datapath)
-    D_test = load_data(datapath_test)
 
     log(logfile, 'Loaded data with shape [%d,%d]' % (D['n'], D['dim']))
 
-    ''' Initialize input placeholders '''
-    mx_x = mx.sym.Variable(name='x', dtype="float", shape=(None, D['dim']))
-    mx_t = mx.sym.Variable(name='t', dtype="float", shape=(None, 1))
-    mx_y_ = mx.sym.Variable(name='y_', dtype="float", shape=(None, 1))
-
-    ''' Parameter placeholders '''
-    mx_r_alpha = mx.sym.Variable(name='r_alpha', dtype="float")
-    mx_r_lambda = mx.sym.Variable(name='r_lambda', dtype="float")
-    mx_do_in = FLAGS.dropout_in
-    mx_do_out = FLAGS.dropout_out
-    mx_p = mx.sym.Variable(name='p_treated', dtype="float")
-
     ''' Define model graph '''
     log(logfile, 'Defining graph...\n')
-    dims = [D['dim'], FLAGS.dim_rep, FLAGS.dim_hyp]
-    CFR = mx_cfr_net(FLAGS, mx_r_alpha, mx_r_lambda, mx_do_in, mx_do_out, dims, mx_do_in, mx_do_out, mx_x, mx_t, mx_y_,
-                     mx_p)
 
     # Neural Network Architecture for ITE estimation
     # rep_net, t1_hyp_net, t0_hyp_net = ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
     #                                                               hyp_hidden_size=FLAGS.dim_hyp)
 
     # Symbol Neural Network Architecture for ITE estimation
-    t1_net, t0_net = symbol_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
-                                                        hyp_hidden_size=FLAGS.dim_hyp)
+    rep_net, t1_net, t0_net = symbol_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
+                                                                 hyp_hidden_size=FLAGS.dim_hyp)
+
+    net = symbol_group_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
+                                                   hyp_hidden_size=FLAGS.dim_hyp)
 
     # Load datasets
     train_dataset = load_data(FLAGS.data_dir + FLAGS.data_train, normalize=True)
 
     # Instantiate net
+    net.initialize(ctx=ctx)
+    net.hybridize()  # hybridize for better performance
+
+    rep_net.initialize(ctx=ctx)
+    rep_net.hybridize()  # hybridize for better performance
+
     t1_net.initialize(ctx=ctx)
     t1_net.hybridize()  # hybridize for better performance
 
     t0_net.initialize(ctx=ctx)
     t0_net.hybridize()  # hybridize for better performance
 
-    # rep_net.initialize(init=mx.init.Xavier(), ctx=ctx)
-    # rep_net.hybridize()  # hybridize for better performance
     # t1_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
     # t1_hyp_net.hybridize()  # hybridize for better performance
     # t0_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
@@ -461,7 +484,8 @@ def mx_run(outdir):
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)  # TODO check args
-    # trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
+    trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
+    rep_trainer = gluon.Trainer(rep_net.collect_params(), optimizer=optimizer)
     t1_trainer = gluon.Trainer(t1_net.collect_params(), optimizer=optimizer)
     t0_trainer = gluon.Trainer(t0_net.collect_params(), optimizer=optimizer)
 
@@ -575,39 +599,41 @@ def mx_run(outdir):
 
                 # Initialize outputs
                 outputs = np.zeros(batch_yf.shape)
-
-                # Forward T1
-                with autograd.record():
-                    if t1_idx.shape[0] != 0:
-                        t1_outputs = t1_net(batch_f_features[t1_idx])
-                        np.put(outputs, t1_idx, t1_outputs.asnumpy())
-                        t1_loss = l2_loss(t1_outputs, batch_yf[t1_idx], sample_weight[t1_idx])
-                    t1_loss.backward()
-
-                if t1_idx.shape[0] != 0:
-                    t1_trainer.step(batch_size)
-
-                # Forward T0
-                with autograd.record():
-                    if t0_idx.shape[0] != 0:
-                        t0_outputs = t0_net(batch_f_features[t0_idx])
-                        np.put(outputs, t0_idx, t0_outputs.asnumpy())
-                        t0_loss = l2_loss(t0_outputs, batch_yf[t0_idx], sample_weight[t0_idx])
-                    t0_loss.backward()
-
-                if t0_idx.shape[0] != 0:
-                    t0_trainer.step(batch_size)
-
+                net_outputs = np.zeros(batch_yf.shape)
                 loss = np.zeros(batch_yf.shape)
-                np.put(loss, t1_idx, t1_loss.asnumpy())
-                np.put(loss, t0_idx, t0_loss.asnumpy())
+
+                # Attach gradients
+                sample_weight.attach_grad()
+                batch_f_features.attach_grad()
+                batch_yf.attach_grad()
+
+                # Forward
+                with autograd.record():
+                    rep_outputs = rep_net(batch_f_features)
+                    t1_o, t0_o, rep_o = net(batch_f_features)
+
+                    if t1_idx.shape[0] != 0:
+                        t1_o_loss = l2_loss(t1_o[t1_idx], batch_yf[t1_idx], sample_weight[t1_idx])
+                        np.put(net_outputs, t1_idx, t1_o[t1_idx].asnumpy())
+                        np.put(loss, t1_idx, t1_o_loss.asnumpy())
+
+                    t0_o_loss = l2_loss(t0_o[t0_idx], batch_yf[t0_idx], sample_weight[t0_idx])
+                    np.put(net_outputs, t0_idx, t0_o[t0_idx].asnumpy())
+                    np.put(loss, t0_idx, t0_o_loss.asnumpy())
+
+                # Backward
+                t1_o_loss.backward(retain_graph=True)
+                t0_o_loss.backward()
+
+                # Optimize
+                trainer.step(batch_size)
 
                 train_loss += loss.mean()
                 rmse_metric.update(batch_yf, mx.nd.array(outputs))
 
             _, train_rmse_factual = rmse_metric.get()
             train_loss /= num_batch
-            _, valid_rmse_factual = test_net_with_cfr(t1_net, t0_net, valid_factual_loader, ctx)
+            _, valid_rmse_factual = test_net_with_cfr(net, valid_factual_loader, ctx)
 
             if epoch % 3 == 0:
                 print(
@@ -619,12 +645,12 @@ def mx_run(outdir):
         train_durations[train_experiment, :] = time.time() - train_start
 
         # Test model
-        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(t1_net, t0_net, train_rmse_ite_loader, ctx)
+        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(net, train_rmse_ite_loader, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # TODO normalize checkup before
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
 
-        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader, ctx)
+        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(net, test_rmse_ite_loader, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # TODO normalize checkup before
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
@@ -768,6 +794,7 @@ def main(argv=None):
         # run(outdir)
         mx_run(outdir)
         # mx_run_test()
+        # mx_CFR_run(outdir)
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
