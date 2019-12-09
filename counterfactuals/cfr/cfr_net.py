@@ -375,12 +375,12 @@ class mx_cfr_net(object):
         self.do_in = do_in
         self.do_out = do_out
 
-        self.mx_x = mx_x
-        self.mx_t = mx_t
-        self.mx_y_ = mx_y_
-        self.mx_p_t = mx_p_t
-        self.mx_do_in = mx_do_in
-        self.mx_do_out = mx_do_out
+        self.x = mx_x
+        self.t = mx_t
+        self.y_ = mx_y_
+        self.p_t = mx_p_t
+        self.do_in = mx_do_in
+        self.do_out = mx_do_out
 
         dim_input = dims[0]
         dim_in = dims[1]
