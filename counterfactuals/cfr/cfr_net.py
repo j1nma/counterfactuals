@@ -175,9 +175,9 @@ class cfr_net(object):
         y, weights_out, weights_pred = self._build_output_graph(h_rep_norm, t, dim_in, dim_out, do_out, FLAGS)
 
         # mx
-        mx_y, mx_weights_out, mx_weights_pred = self.mx_build_output_graph(mx_h_rep_norm, mx_t, dim_in, dim_out,
-                                                                           mx_do_out,
-                                                                           FLAGS)
+        # mx_y, mx_weights_out, mx_weights_pred = mx_cfr_net.mx_build_output_graph(mx_h_rep_norm, mx_t, dim_in, dim_out,
+        #                                                                          mx_do_out,
+        #                                                                          FLAGS)
 
         ''' Compute sample reweighing '''
         if FLAGS.reweight_sample:
@@ -205,8 +205,8 @@ class cfr_net(object):
         pred_error = tf.sqrt(tf.reduce_mean(tf.square(y_ - y)))
 
         # mx
-        mx_risk = mx.sym.mean(mx_sample_weight * mx.sym.square(mx_y_ - mx_y))
-        mx_pred_error = mx.sym.sqrt(mx.sym.mean(mx.sym.square(mx_y_ - mx_y)))
+        # mx_risk = mx.sym.mean(mx_sample_weight * mx.sym.square(mx_y_ - mx_y))
+        # mx_pred_error = mx.sym.sqrt(mx.sym.mean(mx.sym.square(mx_y_ - mx_y)))
 
         ''' Regularization '''
         if FLAGS.p_lambda > 0 and FLAGS.rep_weight_decay:
@@ -227,7 +227,7 @@ class cfr_net(object):
         tot_error = risk
 
         # mx
-        mx_tot_error = mx_risk
+        # mx_tot_error = mx_risk
 
         if FLAGS.p_alpha > 0:
             tot_error = tot_error + imb_error
@@ -327,7 +327,7 @@ class mx_cfr_net(object):
         self.mx_nonlin = mx.symbol.relu
 
         self.mx_build_graph(FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in, mx_do_out, mx_x, mx_t,
-                          mx_y, mx_p_t)
+                            mx_y, mx_p_t)
 
     def mx_add_variable(self, var, name):
         ''' Adds variables to the internal track-keeper '''
@@ -355,7 +355,7 @@ class mx_cfr_net(object):
         return var
 
     def mx_build_graph(self, FLAGS, r_alpha, r_lambda, do_in, do_out, dims, mx_do_in, mx_do_out, mx_x,
-                     mx_t, mx_y_, mx_p_t):
+                       mx_t, mx_y_, mx_p_t):
         """
         Constructs a TensorFlow subgraph for counterfactual regression.
         Sets the following member variables (to TF nodes):
@@ -489,7 +489,7 @@ class mx_cfr_net(object):
         p_ipm = 0.5
 
         imb_dist, imb_mat = mx_wasserstein(mx_h_rep_norm, mx_t, p_ipm, lam=FLAGS.wass_lambda, its=FLAGS.wass_iterations,
-                                        sq=False, backpropT=FLAGS.wass_bpg)
+                                           sq=False, backpropT=FLAGS.wass_bpg)
         imb_error = r_alpha * imb_dist
 
         ''' Total error '''
