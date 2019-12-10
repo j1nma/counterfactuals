@@ -30,6 +30,12 @@ def mx_safe_sqrt(x, lbound=SQRT_CONST):
     return mx.symbol.sqrt(mx.symbol.clip(x, lbound, np.inf))
 
 
+def np_safe_sqrt(x, lbound=SQRT_CONST):
+    ''' Numerically safe version of TensorFlow sqrt '''
+
+    return mx.nd.sqrt(mx.nd.clip(x, lbound, np.inf))
+
+
 def pdist2sq(X, Y):
     """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
     C = -2 * tf.matmul(X, tf.transpose(Y))
@@ -55,6 +61,16 @@ def mx_pdist2sq(X, Y):
     mx_D = (mx_C + mx.symbol.transpose(mx_ny)) + mx_nx
 
     return mx_D
+
+
+def np_pdist2sq(X, Y):
+    """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
+    C = -2 * mx.nd.dot(X, mx.nd.transpose(Y))
+    nx = mx.nd.sum(mx.nd.square(X), 1, keepdims=True)
+    ny = mx.nd.sum(mx.nd.square(Y), 1, keepdims=True)
+    D = (C + mx.nd.transpose(ny)) + nx
+
+    return D
 
 
 def wasserstein(X, t, p, lam=10, its=10, sq=False, backpropT=False):
@@ -234,3 +250,64 @@ def mx_wasserstein(X, t, p, lam=10, its=10, sq=False, backpropT=False):
 
     # mx
     return mx_D, mx_Mlam
+
+
+def np_wasserstein(X, t, p, lam=10, its=10, sq=False, backpropT=False):  # TODO
+    """ Returns the Wasserstein distance between treatment groups, via numpy operations. """
+
+    it = np.where(t[:] == 1)[0]
+    ic = np.where(t[:] == 0)[0]
+    Xt = X[it]
+    Xc = X[ic]
+    nt = np.float(Xt.shape[0])
+    nc = np.float(Xc.shape[0])
+
+    ''' Compute distance matrix'''
+    if sq:
+        M = np_pdist2sq(Xt, Xc)
+    else:
+        M = np_safe_sqrt(np_pdist2sq(Xt, Xc))
+
+    ''' Estimate lambda and delta '''
+    M_mean = mx.nd.mean(M)
+    delta = mx.nd.stop_gradient(mx.nd.max(M))
+    eff_lam = mx.nd.stop_gradient(lam / M_mean)
+
+    ''' Compute new distance matrix '''
+    row = delta * mx.nd.ones_like(mx.nd.slice_axis(M, axis=0, begin=0, end=1))
+    col = mx.nd.Concat(delta * mx.nd.ones_like(mx.nd.slice_axis(M, axis=1, begin=0, end=1)),
+                       mx.nd.zeros((1, 1)), dim=0)
+    Mt = mx.nd.Concat(M, row, dim=0)
+    Mt = mx.nd.Concat(Mt, col, dim=1)
+
+    ''' Compute marginal vectors '''
+    a = mx.nd.Concat(
+        p * mx.nd.ones_like(mx.nd.slice_axis(Xt, axis=1, begin=0, end=1)) / nt,
+        (1 - p) * mx.nd.ones((1, 1)),
+        dim=0)
+
+    b = mx.nd.Concat(
+        (1 - p) * mx.nd.ones_like(mx.nd.slice_axis(Xc, axis=1, begin=0, end=1)) / nc,
+        p * mx.nd.ones((1, 1)),
+        dim=0)
+
+    ''' Compute kernel matrix'''
+    Mlam = eff_lam * Mt
+    K = mx.nd.exp(-Mlam) + 1e-6  # added constant to avoid nan
+    ainvK = K / a
+
+    u = a
+    for i in range(0, its):
+        u = 1.0 / (
+            mx.nd.dot(ainvK, (b / mx.nd.transpose(mx.nd.dot(mx.nd.transpose(u), K)))))
+    v = b / (mx.nd.transpose(mx.nd.dot(mx.nd.transpose(u), K)))
+
+    T = u * (mx.nd.transpose(v) * K)
+
+    if not backpropT:
+        T = mx.nd.stop_gradient(T)
+
+    E = T * Mt
+    D = 2 * mx.nd.sum(E)
+
+    return D, Mlam
