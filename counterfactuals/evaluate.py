@@ -44,7 +44,7 @@ def evaluate(config_file, overwrite=False, filters=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print('Usage: python evaluate.py <config_file> <overwrite (default 0)> <filters (optional)>')
+        print('Usage: python3 evaluate.py <config_file> <overwrite (default 0)> <filters (optional)>')
     else:
         config_file = sys.argv[1]
 

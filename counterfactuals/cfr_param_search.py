@@ -88,11 +88,11 @@ def run(cfg_file, num_runs):
         print('\n'.join(['%s: %s' % (str(k), str(v)) for k, v in cfg.items() if len(configs[k]) > 1]))
 
         flags = ' '.join('--%s %s' % (k, str(v)) for k, v in cfg.items())
-        call('python cfr_net_train.py %s' % flags, shell=True)
+        call('python3 cfr_net_train.py %s' % flags, shell=True)
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print('Usage: python cfr_param_search.py <config file> <num runs>')
+        print('Usage: python3 cfr_param_search.py <config file> <num runs>')
     else:
         run(sys.argv[1], int(sys.argv[2]))
