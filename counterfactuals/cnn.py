@@ -107,7 +107,7 @@ def run(args, outdir):
         yf = yf.reshape((individuals_size, 1, 1))
         ycf = ycf.reshape((individuals_size, 1, 1))
 
-        train, valid, test = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
+        train, valid, test, _ = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
 
         # With-in sample
         train_evaluator = Evaluator(np.concatenate([train['t'], valid['t']]),

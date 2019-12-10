@@ -86,7 +86,7 @@ def split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1, test_size=0.1, valid
             'mu0': mu0[test_idx],
             'mu1': mu1[test_idx]}
 
-    return train, valid, test
+    return train, valid, test, valid_idx
 
 
 def test_net(net, test_data, ctx):
@@ -152,13 +152,16 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
-def predict_treated_and_controlled_with_cfr(net, test_rmse_ite_loader, ctx):
-    """ Predict treated and controlled outcomes. """
+def predict_treated_controlled_and_factual_counterfactual_with_cfr(net, test_rmse_ite_loader, ctx):
+    """ Predict treated and controlled, and, factual and counterfactual outcomes. """
 
     y_t1 = np.array([])
     y_t0 = np.array([])
 
-    for i, (x) in enumerate(test_rmse_ite_loader):
+    y_f = np.array([])
+    y_cf = np.array([])
+
+    for i, (x, t, batch_yf) in enumerate(test_rmse_ite_loader):
         # TODO if rollback to this, use data like x[0]
         # x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
         x = x.as_in_context(ctx)
@@ -166,16 +169,39 @@ def predict_treated_and_controlled_with_cfr(net, test_rmse_ite_loader, ctx):
         t1_features = mx.nd.concat(x, mx.nd.ones((len(x), 1)))
         t0_features = mx.nd.concat(x, mx.nd.zeros((len(x), 1)))
 
+        # Define features
+        batch_f_features = mx.nd.concat(x, t)
+        batch_cf_features = mx.nd.concat(x, 1 - t)
+
+        # Get treatment and control indices
+        t = batch_f_features[:, -1]
+        t1_idx = np.where(t == 1)[0]
+        t0_idx = np.where(t == 0)[0]
+
+        # Initialize outputs
+        factual_net_outputs = np.zeros(batch_yf.shape)
+        counterfactual_net_outputs = np.zeros(batch_yf.shape)
+
         with autograd.predict_mode():
             t1_o, _, _ = net(t1_features)
             _, t0_o, _ = net(t0_features)
             t1_treated_predicted = t1_o
             t0_controlled_predicted = t0_o
 
+            f_t1_o, f_t0_o, _ = net(batch_f_features)
+            np.put(factual_net_outputs, t1_idx, f_t1_o[t1_idx].asnumpy())
+            np.put(factual_net_outputs, t0_idx, f_t0_o[t0_idx].asnumpy())
+
+            cf_t1_o, cf_t0_o, _ = net(batch_cf_features)
+            np.put(counterfactual_net_outputs, t0_idx, cf_t1_o[t0_idx].asnumpy())
+            np.put(counterfactual_net_outputs, t1_idx, cf_t0_o[t1_idx].asnumpy())
+
         y_t1 = np.append(y_t1, t1_treated_predicted)
         y_t0 = np.append(y_t0, t0_controlled_predicted)
+        y_f = np.append(y_f, factual_net_outputs)
+        y_cf = np.append(y_cf, counterfactual_net_outputs)
 
-    return y_t0, y_t1
+    return y_t0, y_t1, y_f, y_cf
 
 
 def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
@@ -199,6 +225,43 @@ def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
         y_t1 = np.append(y_t1, t1_treated_predicted)
 
     return y_t0, y_t1
+
+
+def predict_factual_and_counterfactual_with_cfr(net, test_rmse_ite_loader, ctx):
+    """ Predict factual and counterfactual outcomes. """
+
+    y_f = np.array([])
+    y_cf = np.array([])
+
+    for i, (batch_f_features, batch_yf) in enumerate(test_rmse_ite_loader):
+        batch_f_features = batch_f_features.as_in_context(ctx)
+
+        # Get treatment and control indices
+        t = batch_f_features[:, -1]
+        t1_idx = np.where(t == 1)[0]
+        t0_idx = np.where(t == 0)[0]
+
+        # Initialize outputs
+        factual_net_outputs = np.zeros(batch_yf.shape)
+        counterfactual_net_outputs = np.zeros(batch_yf.shape)
+
+        with autograd.predict_mode():
+            f_t1_o, f_t0_o, _ = net(batch_f_features)
+            np.put(factual_net_outputs, t1_idx, f_t1_o[t1_idx].asnumpy())
+            np.put(factual_net_outputs, t0_idx, f_t0_o[t0_idx].asnumpy())
+
+            # Define counterfactual features
+            batch_cf_features = batch_f_features
+            batch_cf_features[:, -1] = 1 - t
+
+            cf_t1_o, cf_t0_o, _ = net(batch_cf_features)
+            np.put(counterfactual_net_outputs, t0_idx, cf_t1_o[t0_idx].asnumpy())
+            np.put(counterfactual_net_outputs, t1_idx, cf_t0_o[t1_idx].asnumpy())
+
+        y_f = np.append(y_f, factual_net_outputs)
+        y_cf = np.append(y_cf, counterfactual_net_outputs)
+
+    return y_f, y_cf
 
 
 def get_parent_args_parser():

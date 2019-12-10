@@ -100,7 +100,7 @@ def run(args, outdir):
         mu0 = train_dataset['mu0'][:, train_experiment]
         mu1 = train_dataset['mu1'][:, train_experiment]
 
-        train, valid, test = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
+        train, valid, test, _ = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
 
         # With-in sample
         train_evaluator = Evaluator(np.concatenate([train['t'], valid['t']]),
