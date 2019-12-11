@@ -60,8 +60,32 @@ def load_data(filename, normalize=False):
     return data
 
 
+def split_data_in_train_valid(x, t, yf, ycf, mu0, mu1, validation_size=0.27, seed=1):
+    """ Split train data into train and validation indices.
+        73/27 train/validation split
+    """
+    train_idx, valid_idx = train_test_split(np.arange(x.shape[0]), test_size=validation_size, random_state=seed)
+
+    train = {'x': x[train_idx],
+             't': t[train_idx],
+             'yf': yf[train_idx],
+             'ycf': ycf[train_idx],
+             'mu0': mu0[train_idx],
+             'mu1': mu1[train_idx]}
+
+    valid = {'x': x[valid_idx],
+             't': t[valid_idx],
+             'yf': yf[valid_idx],
+             'ycf': ycf[valid_idx],
+             'mu0': mu0[valid_idx],
+             'mu1': mu1[valid_idx]}
+
+    return train, valid, valid_idx
+
+
+
 def split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1, test_size=0.1, validation_size=0.27, seed=1):
-    """ Split train data into train, validation and test indexes.
+    """ Split train data into train, validation and test indices.
         63/27/10 train/validation/test split
     """
     train_valid_idx, test_idx = train_test_split(np.arange(x.shape[0]), test_size=test_size, random_state=seed)
@@ -405,7 +429,8 @@ def get_parent_args_parser():
         "-wd",
         "--weight_decay",
         default=0.0001,
-        help="L2 weight decay lambda."
+        type=float,
+        help="Weight decay L2 regularization parameter."
     )
 
     return parent_parser
@@ -477,13 +502,6 @@ def get_cfr_args_parser():
         default=0,
         type=float,
         help="Imbalance penalty."
-    )
-    cfr_parser.add_argument(
-        "-ld",
-        "--p_lambda",
-        default=0.0001,
-        type=float,
-        help="Weight decay regularization parameter."
     )
     cfr_parser.add_argument(
         '-rd',
