@@ -14,7 +14,7 @@ from counterfactuals.cfr.cfr_net import cfr_net
 from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser, \
-    split_data_in_train_valid_test, test_net_with_cfr, predict_treated_controlled_and_factual_counterfactual_with_cfr
+    split_data_in_train_valid_test, predict_treated_controlled_and_factual_counterfactual_with_cfr
 
 FLAGS = 0
 
@@ -366,7 +366,7 @@ def symbol_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
 
 def symbol_group_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
     # Representation Layers
-    data = mx.sym.Variable('data')
+    data = mx.sym.Variable('data', dtype='float32')
     rep_fc1 = mx.sym.FullyConnected(data=data, name='rep_fc1', num_hidden=rep_hidden_size)
     rep_elu1 = mx.sym.Activation(data=rep_fc1, name='rep_elu1', act_type="relu")
     rep_fc2 = mx.sym.FullyConnected(data=rep_elu1, name='rep_fc2', num_hidden=rep_hidden_size)
@@ -391,9 +391,6 @@ def symbol_group_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
     t0_hyp_fc3 = mx.sym.FullyConnected(data=t0_hyp_relu2, name='t0_hyp_fc3', num_hidden=hyp_hidden_size)
     t0_hyp_relu3 = mx.sym.Activation(data=t0_hyp_fc3, name='t0_hyp_relu3', act_type="relu")
     t0_hyp_fc4 = mx.sym.FullyConnected(data=t0_hyp_relu3, name='t0_hyp_fc4', num_hidden=1)
-
-    # group = mx.sym.Group([t1_hyp_fc4, t0_hyp_fc4])
-    # group.list_outputs()
 
     rep_net = gluon.SymbolBlock(outputs=[t1_hyp_fc4, t0_hyp_fc4, rep_relu3], inputs=[data])
 
@@ -684,22 +681,26 @@ def mx_run(outdir):
 
             _, train_rmse_factual = rmse_metric.get()
             train_loss /= num_batch
-            (_, valid_rmse_factual), valid_obj, valid_imb = test_net_with_cfr(net, valid_factual_loader, ctx, FLAGS,
-                                                                              np.mean(valid['t']))
-            (_, counterfactual_rmse_factual), _, _ = test_net_with_cfr(net, counterfactual_loader, ctx, FLAGS,
-                                                                       p_treated)
+            # (_, valid_rmse_factual), valid_obj, valid_imb = test_net_with_cfr(net, valid_factual_loader, ctx, FLAGS,
+            #                                                                   np.mean(valid['t']))
+            # (_, counterfactual_rmse_factual), _, _ = test_net_with_cfr(net, counterfactual_loader, ctx, FLAGS,
+            #                                                            p_treated)
 
             f_error += train_rmse_factual
-            cf_error += counterfactual_rmse_factual
+            # cf_error += counterfactual_rmse_factual
 
-            valid_f_error += valid_rmse_factual
+            # valid_f_error += valid_rmse_factual
 
-            losses.append([obj_loss, f_error, cf_error, imb_err, valid_f_error, valid_imb, valid_obj])
+            # losses.append([obj_loss, f_error, cf_error, imb_err, valid_f_error, valid_imb, valid_obj])
 
             if epoch % 3 == 0:
+                # With valid_rmse_factual
+                # print(
+                #     '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
+                #     '%.3E' % (epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
                 print(
-                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
-                    '%.3E' % (epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | learning-rate: %.3E' % (
+                        epoch, epochs, train_rmse_factual, train_loss, trainer.learning_rate))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
@@ -712,26 +713,36 @@ def mx_run(outdir):
         train_scores[train_experiment, :] = train_score
         preds_train.append(np.concatenate((y_pred_f.reshape((-1, 1)), y_pred_cf.reshape((-1, 1))), axis=1))
 
-        y_t0, y_t1, y_pred_f, y_pred_cf = predict_treated_controlled_and_factual_counterfactual_with_cfr(net,
-                                                                                                         test_rmse_ite_loader,
-                                                                                                         ctx)
-        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # todo normalize input flag
-        test_score = test_evaluator.get_metrics(y_t1, y_t0)
-        test_scores[train_experiment, :] = test_score
-        preds_test.append(np.concatenate((y_pred_f.reshape((-1, 1)), y_pred_cf.reshape((-1, 1))), axis=1))
+        # y_t0, y_t1, y_pred_f, y_pred_cf = predict_treated_controlled_and_factual_counterfactual_with_cfr(net,
+        #                                                                                                  test_rmse_ite_loader,
+        #                                                                                                  ctx)
+        # y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # todo normalize input flag
+        # test_score = test_evaluator.get_metrics(y_t1, y_t0)
+        # test_scores[train_experiment, :] = test_score
+        # preds_test.append(np.concatenate((y_pred_f.reshape((-1, 1)), y_pred_cf.reshape((-1, 1))), axis=1))
 
         # first try for losses.append()
         # losses.append([obj_loss, f_error, cf_error, imb_err, valid_f_error, valid_imb, valid_obj])
 
-        print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
-                                                                                      train_experiments,
-                                                                                      train_score[0],
-                                                                                      train_score[1],
-                                                                                      train_score[2],
-                                                                                      test_score[0],
-                                                                                      test_score[1],
-                                                                                      test_score[2]))
+        # With test_scores[]
+        # print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+        #       ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
+        #                                                                               train_experiments,
+        #                                                                               train_score[0],
+        #                                                                               train_score[1],
+        #                                                                               train_score[2],
+        #                                                                               test_score[0],
+        #                                                                               test_score[1],
+        #                                                                               test_score[2]))
+
+        print(
+            '[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f}, train duration: {:0.3f}'.format(
+                train_experiment + 1,
+                train_experiments,
+                train_score[0],
+                train_score[1],
+                train_score[2],
+                train_durations[train_experiment][0]))
 
         ''' Collect all reps '''
         all_preds_train.append(preds_train)
@@ -740,8 +751,8 @@ def mx_run(outdir):
 
         ''' Fix shape for output (n_units, dim, n_reps, n_outputs) '''
         out_preds_train = np.swapaxes(np.swapaxes(all_preds_train, 1, 3), 0, 2)
-        out_preds_test = np.swapaxes(np.swapaxes(all_preds_test, 1, 3), 0, 2)
-        out_losses = np.swapaxes(np.swapaxes(all_losses, 0, 2), 0, 1)
+        # out_preds_test = np.swapaxes(np.swapaxes(all_preds_test, 1, 3), 0, 2)
+        # out_losses = np.swapaxes(np.swapaxes(all_losses, 0, 2), 0, 1)
 
         ''' Store predictions '''
         log(logfile, 'Saving result to %s...\n' % outdir)
@@ -752,9 +763,9 @@ def mx_run(outdir):
 
         ''' Save results and predictions '''
         all_valid.append(valid_idx)
-        np.savez(npzfile, pred=out_preds_train, loss=out_losses, val=np.array(all_valid))
+        # np.savez(npzfile, pred=out_preds_train, loss=out_losses, val=np.array(all_valid))
 
-        np.savez(npzfile_test, pred=out_preds_test)
+        # np.savez(npzfile_test, pred=out_preds_test)
 
     # Save means and stds NDArray values for inference
     mx.nd.save(outdir + FLAGS.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
