@@ -10,11 +10,11 @@ from mxnet import gluon, autograd
 from mxnet.gluon import nn
 from scipy.stats import sem
 
-from counterfactuals.cfr.cfr_net import cfr_net, mx_cfr_net
+from counterfactuals.cfr.cfr_net import cfr_net
 from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser, \
-    split_data_in_train_valid_test, predict_treated_and_controlled_with_cfr, test_net_with_cfr
+    split_data_in_train_valid_test, test_net_with_cfr, predict_treated_controlled_and_factual_counterfactual_with_cfr
 
 FLAGS = 0
 
@@ -401,6 +401,18 @@ def symbol_group_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
 
 
 def mx_run(outdir):
+    """ Runs an experiment and stores result in outdir """
+
+    ''' Set up paths and start log '''
+    npzfile = outdir + 'result'
+    npzfile_test = outdir + 'result.test'
+    outform = outdir + 'y_pred'
+    outform_test = outdir + 'y_pred.test'
+    lossform = outdir + 'loss'
+    logfile = outdir + 'log.txt'
+    f = open(logfile, 'w')
+    f.close()
+
     # Hyperparameters
     epochs = int(FLAGS.iterations)
     learning_rate = float(FLAGS.learning_rate)
@@ -446,35 +458,28 @@ def mx_run(outdir):
     ''' Define model graph '''
     log(logfile, 'Defining graph...\n')
 
+    ''' Set up for saving variables '''
+    all_losses = []
+    all_preds_train = []
+    all_preds_test = []
+    all_valid = []
+    all_preds_test = []
+
     # Neural Network Architecture for ITE estimation
     # rep_net, t1_hyp_net, t0_hyp_net = ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
     #                                                               hyp_hidden_size=FLAGS.dim_hyp)
 
     # Symbol Neural Network Architecture for ITE estimation
-    rep_net, t1_net, t0_net = symbol_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
-                                                                 hyp_hidden_size=FLAGS.dim_hyp)
-
     net = symbol_group_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
                                                    hyp_hidden_size=FLAGS.dim_hyp)
 
     # Load datasets
-    train_dataset = load_data(FLAGS.data_dir + FLAGS.data_train, normalize=True)
+    train_dataset = load_data(FLAGS.data_dir + FLAGS.data_train, normalize=True)  # todo normalize input flag
 
     # Instantiate net
     net.initialize(ctx=ctx)
     net.hybridize()  # hybridize for better performance
 
-    rep_net.initialize(ctx=ctx)
-    rep_net.hybridize()  # hybridize for better performance
-
-    t1_net.initialize(ctx=ctx)
-    t1_net.hybridize()  # hybridize for better performance
-
-    t0_net.initialize(ctx=ctx)
-    t0_net.hybridize()  # hybridize for better performance
-
-    # t1_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
-    # t1_hyp_net.hybridize()  # hybridize for better performance
     # t0_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
     # t0_hyp_net.hybridize()  # hybridize for better performance
 
@@ -485,9 +490,6 @@ def mx_run(outdir):
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)  # TODO check args
     trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
-    rep_trainer = gluon.Trainer(rep_net.collect_params(), optimizer=optimizer)
-    t1_trainer = gluon.Trainer(t1_net.collect_params(), optimizer=optimizer)
-    t0_trainer = gluon.Trainer(t0_net.collect_params(), optimizer=optimizer)
 
     # Initialize train score results
     train_scores = np.zeros((train_experiments, 3))
@@ -513,7 +515,7 @@ def mx_run(outdir):
         mu0 = train_dataset['mu0'][:, train_experiment]
         mu1 = train_dataset['mu1'][:, train_experiment]
 
-        train, valid, test = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
+        train, valid, test, valid_idx = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
 
         # With-in sample
         train_evaluator = Evaluator(np.concatenate([train['t'], valid['t']]),
@@ -538,14 +540,23 @@ def mx_run(outdir):
         train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(factual_features), mx.nd.array(train['yf']))
 
         # With-in sample
-        train_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(np.concatenate([train['x'], valid['x']])))
+        train_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(np.concatenate([train['x'], valid['x']])),
+                                                         mx.nd.array(np.concatenate([train['t'], valid['t']])),
+                                                         mx.nd.array(np.concatenate([train['yf'], valid['yf']])))
 
         # Valid dataset
         valid_factual_features = np.hstack((valid['x'], valid['t']))
         valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid_factual_features), mx.nd.array(valid['yf']))
 
+        # Counterfactual dataset
+        counterfactual_features = np.hstack((train['x'], 1 - train['t']))
+        counterfactual_dataset = gluon.data.ArrayDataset(mx.nd.array(counterfactual_features),
+                                                         mx.nd.array(train['ycf']))
+
         # Test dataset
-        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(test['x']))
+        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(test['x']),
+                                                        mx.nd.array(test['t']),
+                                                        mx.nd.array(test['yf']))
 
         # Train DataLoader
         train_factual_loader = gluon.data.DataLoader(train_factual_dataset, batch_size=batch_size, shuffle=True,
@@ -557,6 +568,10 @@ def mx_run(outdir):
         # Valid DataLoader
         valid_factual_loader = gluon.data.DataLoader(valid_factual_dataset, batch_size=batch_size, shuffle=False,
                                                      num_workers=num_workers)
+
+        # Counterfactual DataLoader
+        counterfactual_loader = gluon.data.DataLoader(counterfactual_dataset, batch_size=batch_size, shuffle=False,
+                                                      num_workers=num_workers)
 
         # Test DataLoader
         test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
@@ -570,12 +585,22 @@ def mx_run(outdir):
 
         train_start = time.time()
 
+        # Set up for storing predictions and losses
+        preds_train = []
+        preds_test = []
+        losses = []
+
         # Train model
         for epoch in range(1, epochs + 1):  # start with epoch 1 for easier learning rate calculation
 
             start = time.time()
             train_loss = 0
             rmse_metric.reset()
+            obj_loss = 0
+            f_error = 0
+            cf_error = 0
+            imb_err = 0
+            valid_f_error = 0
 
             for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
                 # Get data and labels into slices and copy each slice into a context.
@@ -599,7 +624,7 @@ def mx_run(outdir):
 
                 # Initialize outputs
                 outputs = np.zeros(batch_yf.shape)
-                net_outputs = np.zeros(batch_yf.shape)
+                factual_net_outputs = np.zeros(batch_yf.shape)
                 loss = np.zeros(batch_yf.shape)
 
                 # Attach gradients
@@ -607,69 +632,136 @@ def mx_run(outdir):
                 batch_f_features.attach_grad()
                 batch_yf.attach_grad()
 
-                # Forward
+                # Forward (Factual)
                 with autograd.record():
-                    rep_outputs = rep_net(batch_f_features)
                     t1_o, t0_o, rep_o = net(batch_f_features)
 
                     if t1_idx.shape[0] != 0:
                         t1_o_loss = l2_loss(t1_o[t1_idx], batch_yf[t1_idx], sample_weight[t1_idx])
-                        np.put(net_outputs, t1_idx, t1_o[t1_idx].asnumpy())
+                        np.put(factual_net_outputs, t1_idx, t1_o[t1_idx].asnumpy())
                         np.put(loss, t1_idx, t1_o_loss.asnumpy())
 
                     t0_o_loss = l2_loss(t0_o[t0_idx], batch_yf[t0_idx], sample_weight[t0_idx])
-                    np.put(net_outputs, t0_idx, t0_o[t0_idx].asnumpy())
+                    np.put(factual_net_outputs, t0_idx, t0_o[t0_idx].asnumpy())
                     np.put(loss, t0_idx, t0_o_loss.asnumpy())
 
+                    risk = t1_o_loss.sum() + t0_o_loss.sum()
+
+                    h_rep = rep_o
+                    if FLAGS.normalization == 'divide':
+                        h_rep_norm = h_rep / np_safe_sqrt(mx.nd.sum(mx.nd.square(h_rep), axis=1, keepdims=True))
+                    else:
+                        h_rep_norm = 1.0 * h_rep
+
+                    ''' Imbalance error '''
+                    p_ipm = 0.5
+
+                    imb_dist, imb_mat = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
+                                                       its=FLAGS.wass_iterations,
+                                                       sq=False, backpropT=FLAGS.wass_bpg)
+
+                    imb_error = FLAGS.p_alpha * imb_dist
+
+                    tot_error = risk
+
+                    if FLAGS.p_alpha > 0:
+                        tot_error = tot_error + imb_error
+
+                    # if FLAGS.p_lambda > 0: #todo
+                    # tot_error = tot_error + FLAGS.p_lambda * self.wd_loss
+
                 # Backward
-                t1_o_loss.backward(retain_graph=True)
-                t0_o_loss.backward()
+                tot_error.backward()
 
                 # Optimize
-                trainer.step(batch_size)
+                trainer.step(batch_size, ignore_stale_grad=True)
 
                 train_loss += loss.mean()
                 rmse_metric.update(batch_yf, mx.nd.array(outputs))
 
+                obj_loss += tot_error
+                imb_err += imb_dist
+
             _, train_rmse_factual = rmse_metric.get()
             train_loss /= num_batch
-            _, valid_rmse_factual = test_net_with_cfr(net, valid_factual_loader, ctx)
+            (_, valid_rmse_factual), valid_obj, valid_imb = test_net_with_cfr(net, valid_factual_loader, ctx, FLAGS,
+                                                                              np.mean(valid['t']))
+            (_, counterfactual_rmse_factual), _, _ = test_net_with_cfr(net, counterfactual_loader, ctx, FLAGS,
+                                                                       p_treated)
+
+            f_error += train_rmse_factual
+            cf_error += counterfactual_rmse_factual
+
+            valid_f_error += valid_rmse_factual
+
+            losses.append([obj_loss, f_error, cf_error, imb_err, valid_f_error, valid_imb, valid_obj])
 
             if epoch % 3 == 0:
                 print(
-                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | t1-learning-rate: '
-                    '%.3E | t0-learning-rate: %.3E' % (
-                        epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, t1_trainer.learning_rate,
-                        t0_trainer.learning_rate))
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
+                    '%.3E' % (epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
         # Test model
-        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(net, train_rmse_ite_loader, ctx)
-        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # TODO normalize checkup before
+        y_t0, y_t1, y_pred_f, y_pred_cf = predict_treated_controlled_and_factual_counterfactual_with_cfr(net,
+                                                                                                         train_rmse_ite_loader,
+                                                                                                         ctx)
+        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # todo normalize input flag
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
+        preds_train.append(np.concatenate((y_pred_f.reshape((-1, 1)), y_pred_cf.reshape((-1, 1))), axis=1))
 
-        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(net, test_rmse_ite_loader, ctx)
-        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # TODO normalize checkup before
+        y_t0, y_t1, y_pred_f, y_pred_cf = predict_treated_controlled_and_factual_counterfactual_with_cfr(net,
+                                                                                                         test_rmse_ite_loader,
+                                                                                                         ctx)
+        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # todo normalize input flag
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
+        preds_test.append(np.concatenate((y_pred_f.reshape((-1, 1)), y_pred_cf.reshape((-1, 1))), axis=1))
+
+        # first try for losses.append()
+        # losses.append([obj_loss, f_error, cf_error, imb_err, valid_f_error, valid_imb, valid_obj])
 
         print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
               ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
                                                                                       train_experiments,
-                                                                                      train_score[0], train_score[1],
+                                                                                      train_score[0],
+                                                                                      train_score[1],
                                                                                       train_score[2],
-                                                                                      test_score[0], test_score[1],
+                                                                                      test_score[0],
+                                                                                      test_score[1],
                                                                                       test_score[2]))
+
+        ''' Collect all reps '''
+        all_preds_train.append(preds_train)
+        all_preds_test.append(preds_test)
+        all_losses.append(losses)
+
+        ''' Fix shape for output (n_units, dim, n_reps, n_outputs) '''
+        out_preds_train = np.swapaxes(np.swapaxes(all_preds_train, 1, 3), 0, 2)
+        out_preds_test = np.swapaxes(np.swapaxes(all_preds_test, 1, 3), 0, 2)
+        out_losses = np.swapaxes(np.swapaxes(all_losses, 0, 2), 0, 1)
+
+        ''' Store predictions '''
+        log(logfile, 'Saving result to %s...\n' % outdir)
+        if FLAGS.output_csv:
+            np.savetxt('%s_%d.csv' % (outform, train_experiment), preds_train[-1], delimiter=',')
+            np.savetxt('%s_%d.csv' % (outform_test, train_experiment), preds_test[-1], delimiter=',')
+            np.savetxt('%s_%d.csv' % (lossform, train_experiment), losses, delimiter=',')
+
+        ''' Save results and predictions '''
+        all_valid.append(valid_idx)
+        np.savez(npzfile, pred=out_preds_train, loss=out_losses, val=np.array(all_valid))
+
+        np.savez(npzfile_test, pred=out_preds_test)
 
     # Save means and stds NDArray values for inference
     mx.nd.save(outdir + FLAGS.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
                {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained models
-    t1_net.export(outdir + FLAGS.architecture.lower() + "-ihdp-t1-net-predictions-" + str(train_experiments))
-    t0_net.export(outdir + FLAGS.architecture.lower() + "-ihdp-t0-net-predictions-" + str(train_experiments))
+    net.export(outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-predictions-" + str(train_experiments))
 
     print('\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
 
@@ -679,7 +771,7 @@ def mx_run(outdir):
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
     test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}' \
-                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+        .format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
 
     print(train_total_scores_str)
     print(test_total_scores_str)
@@ -793,8 +885,6 @@ def main(argv=None):
     try:
         # run(outdir)
         mx_run(outdir)
-        # mx_run_test()
-        # mx_CFR_run(outdir)
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
