@@ -6,6 +6,8 @@ from mxnet import gluon, autograd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from counterfactuals.cfr.util import np_safe_sqrt, np_wasserstein
+
 
 def validation_split(D_exp, val_fraction):
     """ Construct a train/validation split """
@@ -102,33 +104,79 @@ def test_net(net, test_data, ctx):
     return metric.get()
 
 
-def test_net_with_cfr(net, test_data, ctx):
+def test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
     """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
     metric = mx.metric.RMSE()
     metric.reset()
-    for i, (data, label) in enumerate(test_data):
-        # TODO if rollback to this, use data like data[0], label like label[0]
-        # data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
-        # label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+
+    l2_loss = gluon.loss.L2Loss()
+    obj_loss = 0
+    imb_err = 0
+
+    for i, (data, label) in enumerate(test_data_loader):
         data = data.as_in_context(ctx)
         label = label.as_in_context(ctx)
 
+        # Get treatment and control indices
+        t = data[:, -1]
         t1_idx = np.where(data[:, -1] == 1)[0]
         t0_idx = np.where(data[:, -1] == 0)[0]
 
+        # Compute sample reweighing
+        if FLAGS.reweight_sample:
+            w_t = t / (2 * p_treated)
+            w_c = (1 - t) / (2 * 1 - p_treated)
+            sample_weight = w_t + w_c
+        else:
+            sample_weight = 1.0
+
         # Initialize outputs
         predictions = np.zeros(label.shape)
+        loss = np.zeros(label.shape)
 
         with autograd.predict_mode():
             t1_o, t0_o, rep_o = net(data)
 
             if t1_idx.shape[0] != 0:
                 np.put(predictions, t1_idx, t1_o[t1_idx].asnumpy())
+                t1_o_loss = l2_loss(t1_o[t1_idx], label[t1_idx], sample_weight[t1_idx])
+                np.put(loss, t1_idx, t1_o_loss.asnumpy())
 
             np.put(predictions, t0_idx, t0_o[t0_idx].asnumpy())
+            t0_o_loss = l2_loss(t0_o[t0_idx], label[t0_idx], sample_weight[t0_idx])
+            np.put(loss, t0_idx, t0_o_loss.asnumpy())
+
+            risk = t1_o_loss.sum() + t0_o_loss.sum()
+
+            h_rep = rep_o
+            if FLAGS.normalization == 'divide':
+                h_rep_norm = h_rep / np_safe_sqrt(mx.nd.sum(mx.nd.square(h_rep), axis=1, keepdims=True))
+            else:
+                h_rep_norm = 1.0 * h_rep
+
+            ''' Imbalance error '''
+            p_ipm = 0.5
+
+            imb_dist, imb_mat = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
+                                               its=FLAGS.wass_iterations,
+                                               sq=False, backpropT=FLAGS.wass_bpg)
+
+            imb_error = FLAGS.p_alpha * imb_dist
+
+            tot_error = risk
+
+            if FLAGS.p_alpha > 0:
+                tot_error = tot_error + imb_error
+
+            # if FLAGS.p_lambda > 0: #todo
+            # tot_error = tot_error + FLAGS.p_lambda * self.wd_loss
 
         metric.update(label, mx.nd.array(predictions))
-    return metric.get()
+
+        obj_loss += tot_error
+        imb_err += imb_dist
+
+    return metric.get(), obj_loss, imb_err
 
 
 def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
@@ -165,6 +213,8 @@ def predict_treated_controlled_and_factual_counterfactual_with_cfr(net, test_rms
         # TODO if rollback to this, use data like x[0]
         # x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
         x = x.as_in_context(ctx)
+        t = t.as_in_context(ctx)
+        batch_yf = batch_yf.as_in_context(ctx)
 
         t1_features = mx.nd.concat(x, mx.nd.ones((len(x), 1)))
         t0_features = mx.nd.concat(x, mx.nd.zeros((len(x), 1)))
@@ -189,12 +239,14 @@ def predict_treated_controlled_and_factual_counterfactual_with_cfr(net, test_rms
             t0_controlled_predicted = t0_o
 
             f_t1_o, f_t0_o, _ = net(batch_f_features)
-            np.put(factual_net_outputs, t1_idx, f_t1_o[t1_idx].asnumpy())
+            if t1_idx.shape[0] != 0:
+                np.put(factual_net_outputs, t1_idx, f_t1_o[t1_idx].asnumpy())
             np.put(factual_net_outputs, t0_idx, f_t0_o[t0_idx].asnumpy())
 
             cf_t1_o, cf_t0_o, _ = net(batch_cf_features)
             np.put(counterfactual_net_outputs, t0_idx, cf_t1_o[t0_idx].asnumpy())
-            np.put(counterfactual_net_outputs, t1_idx, cf_t0_o[t1_idx].asnumpy())
+            if t1_idx.shape[0] != 0:
+                np.put(counterfactual_net_outputs, t1_idx, cf_t0_o[t1_idx].asnumpy())
 
         y_t1 = np.append(y_t1, t1_treated_predicted)
         y_t0 = np.append(y_t0, t0_controlled_predicted)
