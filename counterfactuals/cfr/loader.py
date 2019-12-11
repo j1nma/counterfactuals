@@ -4,7 +4,7 @@ import numpy as np
 
 
 def load_result_file(file):
-    arr = np.load(file)
+    arr = np.load(file, allow_pickle=True)
 
     D = dict([(k, arr[k]) for k in arr.keys()])
 
