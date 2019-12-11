@@ -84,8 +84,8 @@ def evaluate_ate(predictions, data, i_exp, I_subset=None, nn_t=None, nn_c=None):
     rmse_fact = np.sqrt(np.mean(np.square(yf_p - yf)))
     rmse_cfact = np.sqrt(np.mean(np.square(ycf_p - ycf)))
 
-    eff_pred = ycf_p - yf_p;
-    eff_pred[t > 0] = -eff_pred[t > 0];
+    eff_pred = ycf_p - yf_p
+    eff_pred[t > 0] = -eff_pred[t > 0]
 
     ite_pred = ycf_p - yf
     ite_pred[t > 0] = -ite_pred[t > 0]
