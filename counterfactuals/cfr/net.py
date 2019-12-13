@@ -1,30 +1,59 @@
+import mxnet as mx
 import numpy as np
 from mxnet.gluon import nn, HybridBlock
 from mxnet.gluon.loss import Loss
 
 
+# what about rep_lay and reg_lay? clearly hardcoded here to 3
 class CFRNet(nn.HybridBlock):
-    def __init__(self, rep_hidden_size, hyp_hidden_size, **kwards):
+    def __init__(self, rep_hidden_size, hyp_hidden_size, weight_init_scale, dim_input, **kwards):
         nn.HybridBlock.__init__(self, **kwards)
 
         self.input_shape = None
 
         with self.name_scope():
             # Representation Layers
-            self.rep_fc1 = nn.Dense(rep_hidden_size, activation='relu')
-            self.rep_fc2 = nn.Dense(rep_hidden_size, activation='relu')
-            self.rep_fc3 = nn.Dense(rep_hidden_size, activation='relu')
+            self.rep_fc1 = nn.Dense(rep_hidden_size,
+                                    activation='relu',
+                                    weight_initializer=mx.init.Normal(
+                                        sigma=weight_init_scale / np.sqrt(dim_input)))
+            self.rep_fc2 = nn.Dense(rep_hidden_size,
+                                    activation='relu',
+                                    weight_initializer=mx.init.Normal(
+                                        sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
+            self.rep_fc3 = nn.Dense(rep_hidden_size,
+                                    activation='relu',
+                                    weight_initializer=mx.init.Normal(
+                                        sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
 
             # Hypothesis Layers for t = 1
-            self.t1_hyp_fc1 = nn.Dense(hyp_hidden_size, activation='relu')
-            self.t1_hyp_fc2 = nn.Dense(hyp_hidden_size, activation='relu')
-            self.t1_hyp_fc3 = nn.Dense(hyp_hidden_size, activation='relu')
+            self.t1_hyp_fc1 = nn.Dense(hyp_hidden_size,
+                                       activation='relu',
+                                       weight_initializer=mx.init.Normal(
+                                           sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
+            self.t1_hyp_fc2 = nn.Dense(hyp_hidden_size,
+                                       activation='relu',
+                                       weight_initializer=mx.init.Normal(
+                                           sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
+            self.t1_hyp_fc3 = nn.Dense(hyp_hidden_size,
+                                       activation='relu',
+                                       weight_initializer=mx.init.Normal(
+                                           sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
             self.t1_hyp_fc4 = nn.Dense(1)
 
             # Hypothesis Layers for t = 0
-            self.t0_hyp_fc1 = nn.Dense(hyp_hidden_size, activation='relu')
-            self.t0_hyp_fc2 = nn.Dense(hyp_hidden_size, activation='relu')
-            self.t0_hyp_fc3 = nn.Dense(hyp_hidden_size, activation='relu')
+            self.t0_hyp_fc1 = nn.Dense(hyp_hidden_size,
+                                       activation='relu',
+                                       weight_initializer=mx.init.Normal(
+                                           sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
+            self.t0_hyp_fc2 = nn.Dense(hyp_hidden_size,
+                                       activation='relu',
+                                       weight_initializer=mx.init.Normal(
+                                           sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
+            self.t0_hyp_fc3 = nn.Dense(hyp_hidden_size,
+                                       activation='relu',
+                                       weight_initializer=mx.init.Normal(
+                                           sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
             self.t0_hyp_fc4 = nn.Dense(1)
 
     def forward(self, x, t):

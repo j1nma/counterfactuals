@@ -417,21 +417,19 @@ def mx_run(outdir):
     ''' Define model graph '''
     log(logfile, 'Defining graph...\n')
 
-    # Symbol Neural Network Architecture for ITE estimation
-    # net = symbol_group_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
-    #                                                hyp_hidden_size=FLAGS.dim_hyp)
-
-    net = CFRNet(FLAGS.dim_rep, FLAGS.dim_hyp)
-    # net.initialize()
-
     # Load datasets
     train_dataset = load_data(data_train, normalize=True)  # todo normalize input flag
     log(logfile, 'Training data: ' + data_train)
     log(logfile, 'Test data:     ' + data_train_test)
     log(logfile, 'Loaded data with shape [%d,%d]' % (train_dataset['n'], train_dataset['dim']))
 
+    # Symbol Neural Network Architecture for ITE estimation
+    # net = symbol_group_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
+    #                                                hyp_hidden_size=FLAGS.dim_hyp)
+    net = CFRNet(FLAGS.dim_rep, FLAGS.dim_hyp, FLAGS.weight_init_scale, train_dataset['dim'])
+
     # Instantiate net
-    net.initialize(init=mx.init.Normal(), ctx=ctx)
+    net.initialize(ctx=ctx)
     # net.hybridize()  # hybridize for better performance
 
     # t0_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
