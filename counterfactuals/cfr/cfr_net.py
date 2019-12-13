@@ -209,7 +209,7 @@ class cfr_net(object):
         # mx_pred_error = mx.sym.sqrt(mx.sym.mean(mx.sym.square(mx_y_ - mx_y)))
 
         ''' Regularization '''
-        if FLAGS.p_lambda > 0 and FLAGS.rep_weight_decay:
+        if FLAGS.weight_decay > 0 and FLAGS.rep_weight_decay:
             for i in range(0, FLAGS.rep_lay):
                 self.wd_loss += tf.nn.l2_loss(weights_in[i])
 
@@ -232,7 +232,7 @@ class cfr_net(object):
         if FLAGS.p_alpha > 0:
             tot_error = tot_error + imb_error
 
-        if FLAGS.p_lambda > 0:
+        if FLAGS.weight_decay > 0:
             tot_error = tot_error + r_lambda * self.wd_loss
 
         self.output = y
