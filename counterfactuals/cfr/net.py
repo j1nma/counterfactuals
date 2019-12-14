@@ -6,9 +6,7 @@ from mxnet.gluon.loss import Loss
 
 # todo what about rep_lay and reg_lay? clearly hardcoded here to 3
 class CFRNet(nn.HybridBlock):
-# class CFRNet(nn.Block):
     def __init__(self, rep_hidden_size, hyp_hidden_size, weight_init_scale, dim_input, **kwargs):
-        # nn.Block.__init__(self, **kwargs)
         nn.HybridBlock.__init__(self, **kwargs)
 
         self.input_shape = None
@@ -90,25 +88,6 @@ class CFRNet(nn.HybridBlock):
             t0_hyp_relu4 = self.t0_hyp_fc4(t0_hyp_relu3)
 
         return t1_hyp_relu4, t0_hyp_relu4, rep_relu3
-    #
-    # def forward(self, x, t1_indices, t0_indices):
-    #     rep_relu1 = self.rep_fc1(x)
-    #     rep_relu2 = self.rep_fc2(rep_relu1)
-    #     rep_relu3 = self.rep_fc3(rep_relu2)
-    #
-    #     if np.size(t1_indices) > 0:
-    #         t1_hyp_relu1 = self.t1_hyp_fc1(rep_relu3[t1_indices])
-    #         t1_hyp_relu2 = self.t1_hyp_fc2(t1_hyp_relu1)
-    #         t1_hyp_relu3 = self.t1_hyp_fc3(t1_hyp_relu2)
-    #         t1_hyp_relu4 = self.t1_hyp_fc4(t1_hyp_relu3)
-    #
-    #     if np.size(t0_indices) > 0:
-    #         t0_hyp_relu1 = self.t0_hyp_fc1(rep_relu3[t0_indices])
-    #         t0_hyp_relu2 = self.t0_hyp_fc2(t0_hyp_relu1)
-    #         t0_hyp_relu3 = self.t0_hyp_fc3(t0_hyp_relu2)
-    #         t0_hyp_relu4 = self.t0_hyp_fc4(t0_hyp_relu3)
-    #
-    #     return t1_hyp_relu4, t0_hyp_relu4, rep_relu3
 
 
 class Wasserstein(Loss):
