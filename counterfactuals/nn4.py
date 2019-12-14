@@ -261,8 +261,7 @@ def run_test(args):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        net = gluon.nn.SymbolBlock.imports(args.symbol, ['data'], args.params,
-                                           ctx=ctx)
+        net = gluon.nn.SymbolBlock.imports(args.symbol, ['data'], args.params, ctx=ctx)
 
     # Calculate number of test experiments
     test_experiments = np.min([test_dataset['x'].shape[2], len(train_means)])
@@ -302,10 +301,10 @@ def run_test(args):
 
         print(
             '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f}'.format(test_experiment + 1,
-                                                                                               test_experiments,
-                                                                                               test_score[0],
-                                                                                               test_score[1],
-                                                                                               test_score[2]))
+                                                                                              test_experiments,
+                                                                                              test_score[0],
+                                                                                              test_score[1],
+                                                                                              test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
     print('test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
