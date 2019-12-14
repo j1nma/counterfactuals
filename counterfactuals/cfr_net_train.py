@@ -606,7 +606,7 @@ def mx_run(outdir):
             "mean_duration": mean_duration}
 
 
-def mx_run_out_of_sample_test(outdir):
+def mx_run_out_of_sample_test():
     # TODO: dont mix things: imported means and stds have nothing to do with the 75 test "out of sample" data"
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
@@ -703,7 +703,7 @@ def main(argv=None):
     try:  # todo fix this please, find good practice, if test, dont create above dir
         # run(outdir)
         # mx_run(outdir)
-        mx_run_out_of_sample_test(outdir)
+        mx_run_out_of_sample_test()
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
