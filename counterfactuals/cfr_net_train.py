@@ -402,18 +402,19 @@ def mx_run(outdir):
 
         train, valid, valid_idx = split_data_in_train_valid(x, t, yf, ycf, mu0, mu1)
 
+        # Normalize yf todo normalize before? testing with train mean and stds? why? test.npz related to train.npz?
+        if FLAGS.normalize_input:
+            yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
+            train['yf'] = (train['yf'] - yf_m) / yf_std
+            valid['yf'] = (valid['yf'] - yf_m) / yf_std
+
+            # Save mean and std
+            means = np.append(means, yf_m)
+            stds = np.append(stds, yf_std)
+
         # Train, Valid Evaluators
         train_evaluator = Evaluator(train['t'], train['yf'], train['ycf'], train['mu0'], train['mu1'])
         valid_evaluator = Evaluator(valid['t'], valid['yf'], valid['ycf'], valid['mu0'], valid['mu1'])
-
-        # Normalize yf todo normalize before? testing with train mean and stds? why? test.npz related to train.npz?
-        yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
-        train['yf'] = (train['yf'] - yf_m) / yf_std
-        valid['yf'] = (valid['yf'] - yf_m) / yf_std
-
-        # Save mean and std
-        means = np.append(means, yf_m)
-        stds = np.append(stds, yf_std)
 
         # todo: what about paper:
         # "The results of the experiments on IHDP are pre- sented in Table 1 (left).
