@@ -7,6 +7,7 @@ import time
 import traceback
 
 from mxnet import gluon, autograd
+from mxnet import profiler
 from scipy.stats import sem
 from scipy.stats import wasserstein_distance
 
@@ -15,7 +16,8 @@ from counterfactuals.cfr.net import CFRNet
 from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser, \
-    predict_treated_controlled_and_factual_counterfactual_with_cfr, split_data_in_train_valid
+    predict_treated_and_controlled_with_cfr, split_data_in_train_valid, hybrid_test_net_with_cfr, \
+    hybrid_predict_treated_and_controlled_with_cfr
 
 FLAGS = 0
 
@@ -399,9 +401,10 @@ def mx_run(outdir):
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
     num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
-    ctx = mx.gpu() if mx.context.num_gpus() > 0 else mx.cpu()
+    ctx = mx.gpu() if num_gpus > 0 else mx.cpu()
+    units = num_gpus if num_gpus > 0 else 1
     batch_size_per_unit = int(FLAGS.batch_size_per_unit)  # mini-batch size
-    batch_size = batch_size_per_unit * max(num_gpus, 1)
+    batch_size = batch_size_per_unit * max(units, 1)
 
     ''' Set random seeds '''
     random.seed(FLAGS.seed)
@@ -418,7 +421,8 @@ def mx_run(outdir):
     log(logfile, 'Defining graph...\n')
 
     # Load datasets
-    train_dataset = load_data(data_train, normalize=True)  # todo normalize input flag
+    train_dataset = load_data(data_train, normalize=FLAGS.normalize_input)
+
     log(logfile, 'Training data: ' + data_train)
     log(logfile, 'Test data:     ' + data_train_test)
     log(logfile, 'Loaded data with shape [%d,%d]' % (train_dataset['n'], train_dataset['dim']))
@@ -430,17 +434,14 @@ def mx_run(outdir):
 
     # Instantiate net
     net.initialize(ctx=ctx)
-    # net.hybridize()  # hybridize for better performance
-
-    # t0_hyp_net.initialize(init=mx.init.Xavier(), ctx=ctx)
-    # t0_hyp_net.hybridize()  # hybridize for better performance
+    net.hybridize()  # hybridize for better performance
 
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
     l2_loss = gluon.loss.L2Loss()
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)  # TODO check args
+    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
     trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
 
     # Initialize train score results
@@ -456,6 +457,13 @@ def mx_run(outdir):
     means = np.array([])
     stds = np.array([])
 
+    profiler.set_config(profile_all=True,
+                        aggregate_stats=True,
+                        continuous_dump=False,
+                        filename='profile_output.json')
+    # Ask the profiler to start recording
+    profiler.set_state('run')
+
     # Train
     for train_experiment in range(train_experiments):
 
@@ -469,16 +477,11 @@ def mx_run(outdir):
 
         train, valid, valid_idx = split_data_in_train_valid(x, t, yf, ycf, mu0, mu1)
 
-        # With-in sample
-        train_evaluator = Evaluator(train['t'],
-                                    train['yf'],
-                                    y_cf=train['ycf'],
-                                    mu0=train['mu0'],
-                                    mu1=train['mu1'])
-        valid_evaluator = Evaluator(valid['t'], valid['yf'], valid['ycf'], valid['mu0'],
-                                    valid['mu1'])  # TODO: replace test for valid?
+        # Train, Valid Evaluators
+        train_evaluator = Evaluator(train['t'], train['yf'], train['ycf'], train['mu0'], train['mu1'])
+        valid_evaluator = Evaluator(valid['t'], valid['yf'], valid['ycf'], valid['mu0'], valid['mu1'])
 
-        # Normalize yf
+        # Normalize yf todo normalize before? testing with train mean and stds? why? test.npz related to train.npz?
         yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
         train['yf'] = (train['yf'] - yf_m) / yf_std
         valid['yf'] = (valid['yf'] - yf_m) / yf_std
@@ -487,45 +490,29 @@ def mx_run(outdir):
         means = np.append(means, yf_m)
         stds = np.append(stds, yf_std)
 
+        # todo: what about paper:
+        # "The results of the experiments on IHDP are pre- sented in Table 1 (left).
+        # We average over 1000 realizations of the outcomes with 63/27/10 train/validation/test splits."
         # Train dataset
-        # factual_features = np.hstack((train['x'], train['t']))
-        # train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(factual_features), mx.nd.array(train['yf']))
-        train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(train['x']),
-                                                        mx.nd.array(train['t']),
+        train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(train['x']), mx.nd.array(train['t']),
                                                         mx.nd.array(train['yf']))
 
-        # With-in sample
-        train_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(train['x']),
-                                                         mx.nd.array(train['t']),
-                                                         mx.nd.array(train['yf']))
-
         # Valid dataset
-        # valid_factual_features = np.hstack((valid['x'], valid['t']))
-        # valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid_factual_features), mx.nd.array(valid['yf']))
-        valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid['x']),
-                                                        mx.nd.array(valid['t']),
+        valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid['x']), mx.nd.array(valid['t']),
                                                         mx.nd.array(valid['yf']))
-
-        # Counterfactual dataset
-        counterfactual_features = np.hstack((train['x'], 1 - train['t']))
-        counterfactual_dataset = gluon.data.ArrayDataset(mx.nd.array(counterfactual_features),
-                                                         mx.nd.array(train['ycf']))
 
         # Train DataLoader
         train_factual_loader = gluon.data.DataLoader(train_factual_dataset, batch_size=batch_size, shuffle=True,
                                                      num_workers=num_workers)
-        train_rmse_ite_loader = gluon.data.DataLoader(train_rmse_ite_dataset, batch_size=batch_size,
-                                                      shuffle=False,
-                                                      num_workers=num_workers)
 
         # Valid DataLoader
         valid_factual_loader = gluon.data.DataLoader(valid_factual_dataset, batch_size=batch_size, shuffle=False,
                                                      num_workers=num_workers)
 
-        num_batch = len(train_factual_loader)
+        number_of_batches = len(train_factual_loader)
 
         # Compute treatment probability
-        p_treated = np.mean(train['t'])
+        treatment_probability = np.mean(train['t'])
 
         train_start = time.time()
 
@@ -536,6 +523,7 @@ def mx_run(outdir):
             rmse_metric.reset()
             obj_loss = 0
             imb_err = 0
+            epoch_start = time.time()
 
             for i, (x, t, batch_yf) in enumerate(train_factual_loader):
                 # Get data and labels into slices and copy each slice into a context.
@@ -543,17 +531,17 @@ def mx_run(outdir):
                 t = t.as_in_context(ctx)
                 batch_yf = batch_yf.as_in_context(ctx)
 
-                # Get treatment and control indices
+                # Get treatment and control indices. Make sure batch_size is enough to have at least one treated sample
                 t1_idx = np.where(t == 1)[0]
                 t0_idx = np.where(t == 0)[0]
 
                 if t1_idx.shape[0] == 0:
-                    continue
+                    log(logfile, 'Encountered no treatment samples at batch ' + str(i))
 
                 # Compute sample reweighing
                 if FLAGS.reweight_sample:
-                    w_t = t / (2 * p_treated)
-                    w_c = (1 - t) / (2 * 1 - p_treated)
+                    w_t = t / (2 * treatment_probability)
+                    w_c = (1 - t) / (2 * 1 - treatment_probability)
                     sample_weight = w_t + w_c
                 else:
                     sample_weight = 1.0
@@ -569,7 +557,7 @@ def mx_run(outdir):
 
                 # Forward (Factual)
                 with autograd.record():
-                    t1_o, t0_o, rep_o = net(x, t)
+                    t1_o, t0_o, rep_o = net(x, mx.nd.array(t1_idx), mx.nd.array(t0_idx))
 
                     risk = 0
 
@@ -581,7 +569,6 @@ def mx_run(outdir):
                     t0_o_loss = l2_loss(t0_o, batch_yf[t0_idx], sample_weight[t0_idx])
                     np.put(loss, t0_idx, t0_o_loss.asnumpy())
                     np.put(outputs, t0_idx, t0_o.asnumpy())
-
                     risk = risk + t0_o_loss.sum()
 
                     rep_o.attach_grad()
@@ -627,32 +614,42 @@ def mx_run(outdir):
                 imb_err += imb_error
                 # imb_err += imb_error.asscalar()
 
-            _, train_rmse_factual = rmse_metric.get()
-            train_loss /= num_batch
-            # (_, valid_rmse_factual), valid_obj, valid_imb = test_net_with_cfr(net, valid_factual_loader, ctx, FLAGS,
-            #                                                                   np.mean(valid['t']))
-            if epoch % 10 == 0:
+            if epoch == 1:
+                # Make sure all operations have completed
+                mx.nd.waitall()
+                # Ask the profiler to stop recording
+                profiler.set_state('stop')
+                # Dump all results to log file before download
+                log(logfile, profiler.dumps())
+
+            if epoch % FLAGS.epoch_output_iter == 0:
+                _, train_rmse_factual = rmse_metric.get()
+                train_loss /= number_of_batches
+                (_, valid_rmse_factual), valid_obj, valid_imb = hybrid_test_net_with_cfr(net, valid_factual_loader, ctx,
+                                                                                  FLAGS,
+                                                                                  np.mean(valid['t']))
                 print(
-                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | learning-rate: '
-                    '%.3E | ObjLoss: %.3f \t| ImbErr: %.3f' % (
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f | L2Loss: %.3f | learning-rate: '
+                    '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f | T: %.3f' % (
                         epoch, epochs, train_rmse_factual, train_loss, trainer.learning_rate,
-                        obj_loss,
-                        imb_err))
+                        obj_loss, imb_err, valid_rmse_factual, time.time() - epoch_start))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
         # Test model
-        y_t0, y_t1, y_pred_f, y_pred_cf = predict_treated_controlled_and_factual_counterfactual_with_cfr(net,
-                                                                                                         train_rmse_ite_loader,
-                                                                                                         ctx)
-        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # todo normalize input flag
+        y_t0, y_t1, = hybrid_predict_treated_and_controlled_with_cfr(net,
+                                                              train_factual_loader,
+                                                              ctx)
+        if FLAGS.normalize_input:  # todo before or after Evaluator?
+            y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
 
-        y_t0, y_t1, y_pred_f, y_pred_cf = predict_treated_controlled_and_factual_counterfactual_with_cfr(net,
-                                                                                                         valid_factual_loader,
-                                                                                                         ctx)
-        y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m  # todo normalize input flag
+        y_t0, y_t1, = hybrid_predict_treated_and_controlled_with_cfr(net,
+                                                              valid_factual_loader,
+                                                              ctx)
+        if FLAGS.normalize_input:
+            y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         valid_score = valid_evaluator.get_metrics(y_t1, y_t0)
         valid_scores[train_experiment, :] = valid_score
 
@@ -670,8 +667,10 @@ def mx_run(outdir):
     mx.nd.save(outdir + FLAGS.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
                {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
-    # Export trained models
-    net.export(outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-predictions-" + str(train_experiments))
+    # Export trained models. See mxnet.apache.org/api/python/docs/tutorials/packages/gluon/blocks/save_load_params.html
+    # net.save_parameters(
+    #     outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-non-hybrid-predictions-" + str(train_experiments))
+    net.export(outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-predictions-" + str(train_experiments))  # hybrid
 
     print('\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
 
@@ -699,12 +698,13 @@ def mx_run(outdir):
 
 
 def mx_run_test():
+    # TODO: dont mix things: imported means and stds have nothing to do with the 75 test "out of sample" data"
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
     num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
     ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     batch_size_per_unit = int(FLAGS.batch_size_per_unit)  # mini-batch size
-    batch_size = batch_size_per_unit * max(num_gpus, 1)
+    batch_size = batch_size_per_unit * max(len(ctx), 1)
 
     # Load test dataset
     test_dataset = load_data(FLAGS.data_dir + FLAGS.data_test, normalize=True)
