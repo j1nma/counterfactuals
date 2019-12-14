@@ -358,10 +358,9 @@ def str2bool(v):
     elif v.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+        raise argparse.ArgumentTypeError('Boolean value expected, received:\t' + str(type(bool)))
 
 
-# todo adapt all boolean with
 def get_parent_args_parser():
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
@@ -651,18 +650,20 @@ def get_cfr_args_parser():
         type=float,
         help="Validation part."  # TODO: consider changing
     )
-    cfr_parser.add_argument(
+    cfr_parser.add_argument(  # todo consider removing
         '-so',
         '--split_output',
-        default=False,
-        type=bool,
+        type=str2bool,
+        nargs='?',
+        const=True,
         help='Whether to split output layers between treated and control.'
     )
     cfr_parser.add_argument(
         '-rw',
         '--reweight_sample',
-        default=True,
-        type=bool,
+        type=str2bool,
+        nargs='?',
+        const=True,
         help='Whether to reweight sample for prediction loss with average treatment probability.'
     )
     cfr_parser.add_argument(
