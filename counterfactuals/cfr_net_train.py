@@ -343,39 +343,6 @@ def symbol_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
     return rep_net, t1_net, t0_net
 
 
-def symbol_group_ite_estimation_architecture(rep_hidden_size, hyp_hidden_size):
-    # Representation Layers
-    data = mx.sym.Variable('data', dtype='float32')
-    rep_fc1 = mx.sym.FullyConnected(data=data, name='rep_fc1', num_hidden=rep_hidden_size)
-    rep_relu1 = mx.sym.Activation(data=rep_fc1, name='rep_relu1', act_type="relu")
-    rep_fc2 = mx.sym.FullyConnected(data=rep_relu1, name='rep_fc2', num_hidden=rep_hidden_size)
-    rep_relu2 = mx.sym.Activation(data=rep_fc2, name='rep_relu2', act_type="relu")
-    rep_fc3 = mx.sym.FullyConnected(data=rep_relu2, name='rep_fc3', num_hidden=rep_hidden_size)
-    rep_relu3 = mx.sym.Activation(data=rep_fc3, name='rep_relu3', act_type="relu")
-
-    # Hypothesis Layers for t = 1
-    t1_hyp_fc1 = mx.sym.FullyConnected(data=rep_relu3, name='t1_hyp_fc1', num_hidden=hyp_hidden_size)
-    t1_hyp_relu1 = mx.sym.Activation(data=t1_hyp_fc1, name='t1_hyp_relu1', act_type="relu")
-    t1_hyp_fc2 = mx.sym.FullyConnected(data=t1_hyp_relu1, name='t1_hyp_fc2', num_hidden=hyp_hidden_size)
-    t1_hyp_relu2 = mx.sym.Activation(data=t1_hyp_fc2, name='t1_hyp_relu2', act_type="relu")
-    t1_hyp_fc3 = mx.sym.FullyConnected(data=t1_hyp_relu2, name='t1_hyp_fc3', num_hidden=hyp_hidden_size)
-    t1_hyp_relu3 = mx.sym.Activation(data=t1_hyp_fc3, name='t1_hyp_relu3', act_type="relu")
-    t1_hyp_fc4 = mx.sym.FullyConnected(data=t1_hyp_relu3, name='t1_hyp_fc4', num_hidden=1)
-
-    # Hypothesis Layers for t = 0
-    t0_hyp_fc1 = mx.sym.FullyConnected(data=rep_relu3, name='t0_hyp_fc1', num_hidden=hyp_hidden_size)
-    t0_hyp_relu1 = mx.sym.Activation(data=t0_hyp_fc1, name='t0_hyp_relu1', act_type="relu")
-    t0_hyp_fc2 = mx.sym.FullyConnected(data=t0_hyp_relu1, name='t0_hyp_fc2', num_hidden=hyp_hidden_size)
-    t0_hyp_relu2 = mx.sym.Activation(data=t0_hyp_fc2, name='t0_hyp_relu2', act_type="relu")
-    t0_hyp_fc3 = mx.sym.FullyConnected(data=t0_hyp_relu2, name='t0_hyp_fc3', num_hidden=hyp_hidden_size)
-    t0_hyp_relu3 = mx.sym.Activation(data=t0_hyp_fc3, name='t0_hyp_relu3', act_type="relu")
-    t0_hyp_fc4 = mx.sym.FullyConnected(data=t0_hyp_relu3, name='t0_hyp_fc4', num_hidden=1)
-
-    rep_net = gluon.SymbolBlock(outputs=[t1_hyp_fc4, t0_hyp_fc4, rep_relu3], inputs=[data])
-
-    return rep_net
-
-
 def mx_run(outdir):
     """ Runs an experiment and stores result in outdir """
 
