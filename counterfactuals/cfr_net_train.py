@@ -354,9 +354,7 @@ def mx_run(outdir):
     log(logfile, 'Test data:     ' + data_train_test)
     log(logfile, 'Loaded data with shape [%d,%d]' % (train_dataset['n'], train_dataset['dim']))
 
-    # Symbol Neural Network Architecture for ITE estimation
-    # net = symbol_group_ite_estimation_architecture(rep_hidden_size=FLAGS.dim_rep,
-    #                                                hyp_hidden_size=FLAGS.dim_hyp)
+    # CFR Neural Network Architecture for ITE estimation
     net = CFRNet(FLAGS.dim_rep, FLAGS.dim_hyp, FLAGS.weight_init_scale, train_dataset['dim'])
 
     # Instantiate net
@@ -581,14 +579,14 @@ def mx_run(outdir):
         valid_scores[train_experiment, :] = valid_score
 
         print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
-                                                                                      train_experiments,
-                                                                                      train_score[0],
-                                                                                      train_score[1],
-                                                                                      train_score[2],
-                                                                                      valid_score[0],
-                                                                                      valid_score[1],
-                                                                                      valid_score[2]))
+              ' valid RMSE ITE: {:0.3f}, valid ATE: {:0.3f}, valid PEHE: {:0.3f}'.format(train_experiment + 1,
+                                                                                         train_experiments,
+                                                                                         train_score[0],
+                                                                                         train_score[1],
+                                                                                         train_score[2],
+                                                                                         valid_score[0],
+                                                                                         valid_score[1],
+                                                                                         valid_score[2]))
 
     # Save means and stds NDArray values for inference
     mx.nd.save(outdir + FLAGS.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
