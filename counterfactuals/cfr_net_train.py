@@ -402,7 +402,11 @@ def mx_run(outdir):
 
         train, valid, valid_idx = split_data_in_train_valid(x, t, yf, ycf, mu0, mu1)
 
-        # Normalize yf todo normalize before? testing with train mean and stds? why? test.npz related to train.npz?
+        # Train, Valid Evaluators
+        train_evaluator = Evaluator(train['t'], train['yf'], train['ycf'], train['mu0'], train['mu1'])
+        valid_evaluator = Evaluator(valid['t'], valid['yf'], valid['ycf'], valid['mu0'], valid['mu1'])
+
+        # Normalize yf
         if FLAGS.normalize_input:
             yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
             train['yf'] = (train['yf'] - yf_m) / yf_std
@@ -411,10 +415,6 @@ def mx_run(outdir):
             # Save mean and std
             means = np.append(means, yf_m)
             stds = np.append(stds, yf_std)
-
-        # Train, Valid Evaluators
-        train_evaluator = Evaluator(train['t'], train['yf'], train['ycf'], train['mu0'], train['mu1'])
-        valid_evaluator = Evaluator(valid['t'], valid['yf'], valid['ycf'], valid['mu0'], valid['mu1'])
 
         # todo: what about paper:
         # "The results of the experiments on IHDP are pre- sented in Table 1 (left).
@@ -589,9 +589,10 @@ def mx_run(outdir):
                                                                                          valid_score[1],
                                                                                          valid_score[2]))
 
-    # Save means and stds NDArray values for inference
-    mx.nd.save(outdir + FLAGS.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
-               {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
+    if FLAGS.normalize_input:
+        # Save means and stds NDArray values for inference
+        mx.nd.save(outdir + FLAGS.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
+                   {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained models. See mxnet.apache.org/api/python/docs/tutorials/packages/gluon/blocks/save_load_params.html
     net.export(outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-predictions-" + str(train_experiments))  # hybrid
@@ -623,6 +624,7 @@ def mx_run(outdir):
 
 def mx_run_test():
     # TODO: dont mix things: imported means and stds have nothing to do with the 75 test "out of sample" data"
+    # THIS SHOULD BE called OUT OF SAMPLE test
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
     num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
