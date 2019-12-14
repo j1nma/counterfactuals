@@ -5,6 +5,7 @@ import random
 import sys
 import time
 import traceback
+import warnings
 
 from mxnet import gluon, autograd
 from scipy.stats import sem
@@ -15,7 +16,7 @@ from counterfactuals.cfr.net import CFRNet
 from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser, \
-    predict_treated_and_controlled_with_cfr, split_data_in_train_valid, hybrid_test_net_with_cfr, \
+    split_data_in_train_valid, hybrid_test_net_with_cfr, \
     hybrid_predict_treated_and_controlled_with_cfr
 
 FLAGS = 0
@@ -394,7 +395,7 @@ def mx_run(outdir):
 
         train, valid, valid_idx = split_data_in_train_valid(x, t, yf, ycf, mu0, mu1)
 
-        # Train, Valid Evaluators
+        # Train, Valid Evaluators, with labels not normalized
         train_evaluator = Evaluator(train['t'], train['yf'], train['ycf'], train['mu0'], train['mu1'])
         valid_evaluator = Evaluator(valid['t'], valid['yf'], valid['ycf'], valid['mu0'], valid['mu1'])
 
@@ -441,7 +442,6 @@ def mx_run(outdir):
             rmse_metric.reset()
             obj_loss = 0
             imb_err = 0
-            epoch_start = time.time()
 
             for i, (x, t, batch_yf) in enumerate(train_factual_loader):
                 # Get data and labels into slices and copy each slice into a context.
@@ -540,9 +540,9 @@ def mx_run(outdir):
                                                                                          np.mean(valid['t']))
                 print(
                     '[Epoch %d/%d] Train-rmse-factual: %.3f | L2Loss: %.3f | learning-rate: '
-                    '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f | T: %.3f' % (
+                    '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f' % (
                         epoch, epochs, train_rmse_factual, train_loss, trainer.learning_rate,
-                        obj_loss, imb_err, valid_rmse_factual, time.time() - epoch_start))
+                        obj_loss, imb_err, valid_rmse_factual))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
@@ -579,7 +579,7 @@ def mx_run(outdir):
                    {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained models. See mxnet.apache.org/api/python/docs/tutorials/packages/gluon/blocks/save_load_params.html
-    net.export(outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-predictions-" + str(train_experiments))  # hybrid
+    net.export(outdir + FLAGS.architecture.lower() + "-ihdp-predictions-" + str(train_experiments))  # hybrid
 
     print('\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
 
@@ -606,46 +606,38 @@ def mx_run(outdir):
             "mean_duration": mean_duration}
 
 
-def mx_run_test():
+def mx_run_out_of_sample_test(outdir):
     # TODO: dont mix things: imported means and stds have nothing to do with the 75 test "out of sample" data"
-    # THIS SHOULD BE called OUT OF SAMPLE test
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
     num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
-    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    ctx = mx.gpu() if num_gpus > 0 else mx.cpu()
+    units = num_gpus if num_gpus > 0 else 1
     batch_size_per_unit = int(FLAGS.batch_size_per_unit)  # mini-batch size
-    batch_size = batch_size_per_unit * max(len(ctx), 1)
+    batch_size = batch_size_per_unit * max(units, 1)
 
     # Load test dataset
-    test_dataset = load_data(FLAGS.data_dir + FLAGS.data_test, normalize=True)
+    test_dataset = load_data(FLAGS.data_dir + FLAGS.data_test, normalize=FLAGS.normalize_input)
 
-    # Load training means and stds
-    train_means_stds = mx.nd.load(FLAGS.results_dir + FLAGS.architecture.lower()
-                                  + "_means_stds_ihdp_" + str(FLAGS.experiments) + "_.nd")
-    train_means = train_means_stds['means']
-    train_stds = train_means_stds['stds']
-
-    t1_prefix = FLAGS.results_dir + FLAGS.architecture.lower() + "-ihdp-t1-net-predictions-" + str(
-        FLAGS.experiments) + "-"
-    t0_prefix = FLAGS.results_dir + FLAGS.architecture.lower() + "-ihdp-t0-net-predictions-" + str(
-        FLAGS.experiments) + "-"
-    t1_net = gluon.nn.SymbolBlock.imports(t1_prefix + "symbol.json",
-                                          ['data'],
-                                          t1_prefix + "0000.params",
-                                          ctx=ctx)
-    t0_net = gluon.nn.SymbolBlock.imports(t0_prefix + "symbol.json",
-                                          ['data'],
-                                          t0_prefix + "0000.params",
-                                          ctx=ctx)
+    # Import CFRNet
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        net_prefix = FLAGS.results_dir + "/" + FLAGS.architecture.lower() + "-ihdp-predictions-" + str(
+            FLAGS.experiments) + "-"
+        net = gluon.nn.SymbolBlock.imports(net_prefix + "symbol.json",
+                                           ['data0', 'data1', 'data2'],
+                                           net_prefix + "0000.params",
+                                           ctx=ctx)
 
     # Calculate number of test experiments
-    test_experiments = np.min([test_dataset['x'].shape[2], len(train_means)])
+    test_experiments = test_dataset['x'].shape[2]
 
     # Initialize test score results
     test_scores = np.zeros((test_experiments, 3))
 
     # Test model
     for test_experiment in range(test_experiments):
+
         # Create testing dataset
         x = test_dataset['x'][:, :, test_experiment]
         t = np.reshape(test_dataset['t'][:, test_experiment], (-1, 1))
@@ -654,23 +646,29 @@ def mx_run_test():
         mu0 = test_dataset['mu0'][:, test_experiment]
         mu1 = test_dataset['mu1'][:, test_experiment]
 
-        # With-in sample
+        # Test Evaluator, with labels not normalized
         test_evaluator = Evaluator(t, yf, ycf, mu0, mu1)
 
         # Retrieve training mean and std
-        train_yf_m, train_yf_std = train_means[test_experiment].asnumpy(), train_stds[test_experiment].asnumpy()
+        # train_yf_m, train_yf_std = train_means[test_experiment].asnumpy(), train_stds[test_experiment].asnumpy()
+
+        # Normalize yf
+        if FLAGS.normalize_input:
+            test_yf_m, test_yf_std = np.mean(yf, axis=0), np.std(yf, axis=0)
+            yf = (yf - test_yf_m) / test_yf_std
 
         # Test dataset
-        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(x))
+        test_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(x), mx.nd.array(t), mx.nd.array(yf))
 
         # Test DataLoader
-        test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
+        test_rmse_ite_loader = gluon.data.DataLoader(test_factual_dataset, batch_size=batch_size,
                                                      shuffle=False,
                                                      num_workers=num_workers)
 
-        # Test model
-        y_t0, y_t1 = predict_treated_and_controlled_with_cfr(t1_net, t0_net, test_rmse_ite_loader, ctx)
-        y_t0, y_t1 = y_t0 * train_yf_std + train_yf_m, y_t1 * train_yf_std + train_yf_m
+        # Test model with test data
+        y_t0, y_t1 = hybrid_predict_treated_and_controlled_with_cfr(net, test_rmse_ite_loader, ctx)
+        if FLAGS.normalize_input:
+            y_t0, y_t1 = y_t0 * test_yf_std + test_yf_m, y_t1 * test_yf_std + test_yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[test_experiment, :] = test_score
 
@@ -702,9 +700,10 @@ def main(argv=None):
     outdir = FLAGS.outdir + '/results_' + timestamp + '/'
     os.mkdir(outdir)
 
-    try:
+    try:  # todo fix this please, find good practice, if test, dont create above dir
         # run(outdir)
-        mx_run(outdir)
+        # mx_run(outdir)
+        mx_run_out_of_sample_test(outdir)
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
