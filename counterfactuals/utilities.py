@@ -350,6 +350,18 @@ def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+# todo adapt all boolean with
 def get_parent_args_parser():
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
@@ -656,8 +668,9 @@ def get_cfr_args_parser():
     cfr_parser.add_argument(
         "-ni",
         "--normalize_input",
-        default=True,
-        type=bool,
+        type=str2bool,
+        nargs='?',
+        const=True,
         help='Whether to normalize input.'
     )
 
