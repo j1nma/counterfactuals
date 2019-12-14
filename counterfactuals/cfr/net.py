@@ -4,10 +4,12 @@ from mxnet.gluon import nn, HybridBlock
 from mxnet.gluon.loss import Loss
 
 
-# what about rep_lay and reg_lay? clearly hardcoded here to 3
+# todo what about rep_lay and reg_lay? clearly hardcoded here to 3
 class CFRNet(nn.HybridBlock):
-    def __init__(self, rep_hidden_size, hyp_hidden_size, weight_init_scale, dim_input, **kwards):
-        nn.HybridBlock.__init__(self, **kwards)
+# class CFRNet(nn.Block):
+    def __init__(self, rep_hidden_size, hyp_hidden_size, weight_init_scale, dim_input, **kwargs):
+        # nn.Block.__init__(self, **kwargs)
+        nn.HybridBlock.__init__(self, **kwargs)
 
         self.input_shape = None
 
@@ -15,28 +17,34 @@ class CFRNet(nn.HybridBlock):
             # Representation Layers
             self.rep_fc1 = nn.Dense(rep_hidden_size,
                                     activation='relu',
+                                    in_units=dim_input,
                                     weight_initializer=mx.init.Normal(
                                         sigma=weight_init_scale / np.sqrt(dim_input)))
             self.rep_fc2 = nn.Dense(rep_hidden_size,
                                     activation='relu',
+                                    in_units=rep_hidden_size,
                                     weight_initializer=mx.init.Normal(
                                         sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
             self.rep_fc3 = nn.Dense(rep_hidden_size,
                                     activation='relu',
+                                    in_units=rep_hidden_size,
                                     weight_initializer=mx.init.Normal(
                                         sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
 
             # Hypothesis Layers for t = 1
             self.t1_hyp_fc1 = nn.Dense(hyp_hidden_size,
                                        activation='relu',
+                                       in_units=rep_hidden_size,
                                        weight_initializer=mx.init.Normal(
                                            sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
             self.t1_hyp_fc2 = nn.Dense(hyp_hidden_size,
                                        activation='relu',
+                                       in_units=hyp_hidden_size,
                                        weight_initializer=mx.init.Normal(
                                            sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
             self.t1_hyp_fc3 = nn.Dense(hyp_hidden_size,
                                        activation='relu',
+                                       in_units=hyp_hidden_size,
                                        weight_initializer=mx.init.Normal(
                                            sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
             self.t1_hyp_fc4 = nn.Dense(1)
@@ -44,39 +52,63 @@ class CFRNet(nn.HybridBlock):
             # Hypothesis Layers for t = 0
             self.t0_hyp_fc1 = nn.Dense(hyp_hidden_size,
                                        activation='relu',
+                                       in_units=rep_hidden_size,
                                        weight_initializer=mx.init.Normal(
                                            sigma=weight_init_scale / np.sqrt(rep_hidden_size)))
             self.t0_hyp_fc2 = nn.Dense(hyp_hidden_size,
                                        activation='relu',
+                                       in_units=hyp_hidden_size,
                                        weight_initializer=mx.init.Normal(
                                            sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
             self.t0_hyp_fc3 = nn.Dense(hyp_hidden_size,
                                        activation='relu',
+                                       in_units=hyp_hidden_size,
                                        weight_initializer=mx.init.Normal(
                                            sigma=weight_init_scale / np.sqrt(hyp_hidden_size)))
             self.t0_hyp_fc4 = nn.Dense(1)
 
-    def forward(self, x, t):
-        self.input_shape = x.shape
+    def forward(self, x, t1_indices, t0_indices):
+        self.input_shape = x.shape[0]
 
-        return HybridBlock.forward(self, x, t)
+        return HybridBlock.forward(self, x, t1_indices, t0_indices)
 
-    def hybrid_forward(self, F, x, t):
+    def hybrid_forward(self, F, x, t1_indices, t0_indices):
         rep_relu1 = self.rep_fc1(x)
         rep_relu2 = self.rep_fc2(rep_relu1)
         rep_relu3 = self.rep_fc3(rep_relu2)
 
-        t1_hyp_relu1 = self.t1_hyp_fc1(rep_relu3[np.where(t == 1)[0]])
-        t1_hyp_relu2 = self.t1_hyp_fc2(t1_hyp_relu1)
-        t1_hyp_relu3 = self.t1_hyp_fc3(t1_hyp_relu2)
-        t1_hyp_relu4 = self.t1_hyp_fc4(t1_hyp_relu3)
+        if F.size_array(t1_indices).__getitem__(0).__gt__(0).__bool__:
+            t1_hyp_relu1 = self.t1_hyp_fc1(F.take(rep_relu3, t1_indices))
+            t1_hyp_relu2 = self.t1_hyp_fc2(t1_hyp_relu1)
+            t1_hyp_relu3 = self.t1_hyp_fc3(t1_hyp_relu2)
+            t1_hyp_relu4 = self.t1_hyp_fc4(t1_hyp_relu3)
 
-        t0_hyp_relu1 = self.t0_hyp_fc1(rep_relu3[np.where(t == 0)[0]])
-        t0_hyp_relu2 = self.t0_hyp_fc2(t0_hyp_relu1)
-        t0_hyp_relu3 = self.t0_hyp_fc3(t0_hyp_relu2)
-        t0_hyp_relu4 = self.t0_hyp_fc4(t0_hyp_relu3)
+        if F.size_array(t0_indices).__getitem__(0).__gt__(0).__bool__:
+            t0_hyp_relu1 = self.t0_hyp_fc1(F.take(rep_relu3, t0_indices))
+            t0_hyp_relu2 = self.t0_hyp_fc2(t0_hyp_relu1)
+            t0_hyp_relu3 = self.t0_hyp_fc3(t0_hyp_relu2)
+            t0_hyp_relu4 = self.t0_hyp_fc4(t0_hyp_relu3)
 
         return t1_hyp_relu4, t0_hyp_relu4, rep_relu3
+    #
+    # def forward(self, x, t1_indices, t0_indices):
+    #     rep_relu1 = self.rep_fc1(x)
+    #     rep_relu2 = self.rep_fc2(rep_relu1)
+    #     rep_relu3 = self.rep_fc3(rep_relu2)
+    #
+    #     if np.size(t1_indices) > 0:
+    #         t1_hyp_relu1 = self.t1_hyp_fc1(rep_relu3[t1_indices])
+    #         t1_hyp_relu2 = self.t1_hyp_fc2(t1_hyp_relu1)
+    #         t1_hyp_relu3 = self.t1_hyp_fc3(t1_hyp_relu2)
+    #         t1_hyp_relu4 = self.t1_hyp_fc4(t1_hyp_relu3)
+    #
+    #     if np.size(t0_indices) > 0:
+    #         t0_hyp_relu1 = self.t0_hyp_fc1(rep_relu3[t0_indices])
+    #         t0_hyp_relu2 = self.t0_hyp_fc2(t0_hyp_relu1)
+    #         t0_hyp_relu3 = self.t0_hyp_fc3(t0_hyp_relu2)
+    #         t0_hyp_relu4 = self.t0_hyp_fc4(t0_hyp_relu3)
+    #
+    #     return t1_hyp_relu4, t0_hyp_relu4, rep_relu3
 
 
 class Wasserstein(Loss):
