@@ -28,7 +28,6 @@ def validation_split(D_exp, val_fraction):
 
 def log(logfile, s):
     """ Log a string into a file and print it. """
-
     with open(logfile, 'a') as f:
         f.write(s + '\n')
     print(s)
@@ -49,7 +48,6 @@ def load_data(filename, normalize=False):
     data['dim'] = data['x'].shape[1]
     data['n'] = data['x'].shape[0]
 
-    # TODO: normalize input option
     if normalize:
         # Adjust binary feature at index 13: {1, 2} -> {0, 1}
         data['x'][:, 13] -= 1
@@ -159,7 +157,79 @@ def test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
         loss = np.zeros(label.shape)
 
         with autograd.predict_mode():
-            t1_o, t0_o, rep_o = net(x, t)
+            t1_o, t0_o, rep_o = net(x, t1_idx, t0_idx)
+
+            if t1_idx.shape[0] != 0:
+                np.put(predictions, t1_idx, t1_o.asnumpy())
+                t1_o_loss = l2_loss(t1_o, label[t1_idx], sample_weight[t1_idx])
+                np.put(loss, t1_idx, t1_o_loss.asnumpy())
+
+            np.put(predictions, t0_idx, t0_o.asnumpy())
+            t0_o_loss = l2_loss(t0_o, label[t0_idx], sample_weight[t0_idx])
+            np.put(loss, t0_idx, t0_o_loss.asnumpy())
+
+            risk = t1_o_loss.sum() + t0_o_loss.sum()
+
+            h_rep = rep_o
+            if FLAGS.normalization == 'divide':
+                h_rep_norm = h_rep / np_safe_sqrt(mx.nd.sum(mx.nd.square(h_rep), axis=1, keepdims=True))
+            else:
+                h_rep_norm = 1.0 * h_rep
+
+            ''' Imbalance error '''
+            p_ipm = 0.5
+
+            imb_dist, imb_mat = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
+                                               its=FLAGS.wass_iterations,
+                                               sq=False, backpropT=FLAGS.wass_bpg)
+
+            imb_error = FLAGS.p_alpha * imb_dist
+
+            tot_error = risk
+
+            if FLAGS.p_alpha > 0:
+                tot_error = tot_error + imb_error
+
+        metric.update(label, mx.nd.array(predictions))
+
+        obj_loss += tot_error
+        imb_err += imb_dist
+
+    return metric.get(), obj_loss, imb_err
+
+
+def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
+    """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
+    metric = mx.metric.RMSE()
+    metric.reset()
+
+    l2_loss = gluon.loss.L2Loss()
+    obj_loss = 0
+    imb_err = 0
+
+    for i, (x, t, label) in enumerate(test_data_loader):
+        x = x.as_in_context(ctx)
+        t = t.as_in_context(ctx)
+        label = label.as_in_context(ctx)
+
+        # Get treatment and control indices
+        t1_idx = np.where(x[:, -1] == 1)[0]
+        t0_idx = np.where(x[:, -1] == 0)[0]
+
+        # Compute sample reweighing
+        if FLAGS.reweight_sample:
+            w_t = t / (2 * p_treated)
+            w_c = (1 - t) / (2 * 1 - p_treated)
+            sample_weight = w_t + w_c
+        else:
+            sample_weight = 1.0
+
+        # Initialize outputs
+        predictions = np.zeros(label.shape)
+        loss = np.zeros(label.shape)
+
+        with autograd.predict_mode():
+            t1_o, t0_o, rep_o = net(x, mx.nd.array(t1_idx), mx.nd.array(t0_idx))
 
             if t1_idx.shape[0] != 0:
                 np.put(predictions, t1_idx, t1_o.asnumpy())
@@ -221,49 +291,40 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
-def predict_treated_controlled_and_factual_counterfactual_with_cfr(net, test_rmse_ite_loader, ctx):
-    """ Predict treated and controlled, and, factual and counterfactual outcomes. """
+def predict_treated_and_controlled_with_cfr(net, data_loader, ctx):
+    """ Predict treated and controlled outcomes. """
 
     y_t1 = np.array([])
     y_t0 = np.array([])
 
-    y_f = np.array([])
-    y_cf = np.array([])
-
-    for i, (x, t, batch_yf) in enumerate(test_rmse_ite_loader):
+    for i, (x, _, _) in enumerate(data_loader):
         x = x.as_in_context(ctx)
-        t = t.as_in_context(ctx)
-        batch_yf = batch_yf.as_in_context(ctx)
-
-        # Get treatment and control indices
-        t1_idx = np.where(t == 1)[0]
-        t0_idx = np.where(t == 0)[0]
-
-        # Initialize outputs
-        factual_net_outputs = np.zeros(batch_yf.shape)
-        counterfactual_net_outputs = np.zeros(batch_yf.shape)
 
         with autograd.predict_mode():
-            f_t1_o, f_t0_o, _ = net(x, t)
-            cf_t1_o, cf_t0_o, _ = net(x, 1 - t)
-
-            t1_treated_predicted, _, _ = net(x, mx.nd.ones((len(x), 1)))
-            _, t0_controlled_predicted, _ = net(x, mx.nd.zeros((len(x), 1)))
-
-            if t1_idx.shape[0] != 0:
-                np.put(factual_net_outputs, t1_idx, f_t1_o.asnumpy())
-            np.put(factual_net_outputs, t0_idx, f_t0_o.asnumpy())
-
-            if t1_idx.shape[0] != 0:
-                np.put(counterfactual_net_outputs, t1_idx, cf_t0_o.asnumpy())
-            np.put(counterfactual_net_outputs, t0_idx, cf_t1_o.asnumpy())
+            t1_treated_predicted, t0_controlled_predicted, _ = net(x, mx.nd.arange(len(x)), mx.nd.arange(len(x)))
 
         y_t1 = np.append(y_t1, t1_treated_predicted)
         y_t0 = np.append(y_t0, t0_controlled_predicted)
-        y_f = np.append(y_f, factual_net_outputs)
-        y_cf = np.append(y_cf, counterfactual_net_outputs)
 
-    return y_t0, y_t1, y_f, y_cf
+    return y_t0, y_t1
+
+
+def hybrid_predict_treated_and_controlled_with_cfr(net, data_loader, ctx):
+    """ Predict treated and controlled outcomes. """
+
+    y_t1 = np.array([])
+    y_t0 = np.array([])
+
+    for i, (x, _, _) in enumerate(data_loader):
+        x = x.as_in_context(ctx)
+
+        with autograd.predict_mode():
+            t1_treated_predicted, t0_controlled_predicted, _ = net(x, mx.nd.arange(len(x)), mx.nd.arange(len(x)))
+
+        y_t1 = np.append(y_t1, t1_treated_predicted)
+        y_t0 = np.append(y_t0, t0_controlled_predicted)
+
+    return y_t0, y_t1
 
 
 def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
@@ -381,6 +442,13 @@ def get_parent_args_parser():
         type=float,
         help="Weight decay L2 regularization parameter."
     )
+    parent_parser.add_argument(
+        "-ei",
+        "--epoch_output_iter",
+        default=10,
+        type=int,
+        help="Print results after given number of epochs."
+    )
 
     return parent_parser
 
@@ -479,13 +547,6 @@ def get_cfr_args_parser():
         default=0.3,
         type=float,
         help="RMSProp decay."
-    )
-    cfr_parser.add_argument(
-        "-bz",
-        "--batch_size",
-        default=100,
-        type=int,
-        help="Batch size."
     )
     cfr_parser.add_argument(
         "-id",
@@ -591,6 +652,13 @@ def get_cfr_args_parser():
         default=True,
         type=bool,
         help='Whether to reweight sample for prediction loss with average treatment probability.'
+    )
+    cfr_parser.add_argument(
+        "-ni",
+        "--normalize_input",
+        default=True,
+        type=bool,
+        help='Whether to normalize input.'
     )
 
     return cfr_parser
