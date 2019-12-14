@@ -7,7 +7,6 @@ import time
 import traceback
 
 from mxnet import gluon, autograd
-from mxnet import profiler
 from scipy.stats import sem
 from scipy.stats import wasserstein_distance
 
@@ -382,13 +381,6 @@ def mx_run(outdir):
     means = np.array([])
     stds = np.array([])
 
-    profiler.set_config(profile_all=True,
-                        aggregate_stats=True,
-                        continuous_dump=False,
-                        filename='profile_output.json')
-    # Ask the profiler to start recording
-    profiler.set_state('run')
-
     # Train
     for train_experiment in range(train_experiments):
 
@@ -540,14 +532,6 @@ def mx_run(outdir):
                 imb_err += imb_error
                 # imb_err += imb_error.asscalar()
 
-            if epoch == 1:
-                # Make sure all operations have completed
-                mx.nd.waitall()
-                # Ask the profiler to stop recording
-                profiler.set_state('stop')
-                # Dump all results to log file before download
-                log(logfile, profiler.dumps())
-
             if epoch % FLAGS.epoch_output_iter == 0:
                 _, train_rmse_factual = rmse_metric.get()
                 train_loss /= number_of_batches
@@ -562,11 +546,11 @@ def mx_run(outdir):
 
         train_durations[train_experiment, :] = time.time() - train_start
 
-        # Test model
+        # Test model with valid data
         y_t0, y_t1, = hybrid_predict_treated_and_controlled_with_cfr(net,
                                                                      train_factual_loader,
                                                                      ctx)
-        if FLAGS.normalize_input:  # todo before or after Evaluator?
+        if FLAGS.normalize_input:
             y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
