@@ -626,8 +626,8 @@ def mx_run(outdir):
                 _, train_rmse_factual = rmse_metric.get()
                 train_loss /= number_of_batches
                 (_, valid_rmse_factual), valid_obj, valid_imb = hybrid_test_net_with_cfr(net, valid_factual_loader, ctx,
-                                                                                  FLAGS,
-                                                                                  np.mean(valid['t']))
+                                                                                         FLAGS,
+                                                                                         np.mean(valid['t']))
                 print(
                     '[Epoch %d/%d] Train-rmse-factual: %.3f | L2Loss: %.3f | learning-rate: '
                     '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f | T: %.3f' % (
@@ -638,16 +638,16 @@ def mx_run(outdir):
 
         # Test model
         y_t0, y_t1, = hybrid_predict_treated_and_controlled_with_cfr(net,
-                                                              train_factual_loader,
-                                                              ctx)
+                                                                     train_factual_loader,
+                                                                     ctx)
         if FLAGS.normalize_input:  # todo before or after Evaluator?
             y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
 
         y_t0, y_t1, = hybrid_predict_treated_and_controlled_with_cfr(net,
-                                                              valid_factual_loader,
-                                                              ctx)
+                                                                     valid_factual_loader,
+                                                                     ctx)
         if FLAGS.normalize_input:
             y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         valid_score = valid_evaluator.get_metrics(y_t1, y_t0)
@@ -668,8 +668,6 @@ def mx_run(outdir):
                {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained models. See mxnet.apache.org/api/python/docs/tutorials/packages/gluon/blocks/save_load_params.html
-    # net.save_parameters(
-    #     outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-non-hybrid-predictions-" + str(train_experiments))
     net.export(outdir + FLAGS.architecture.lower() + "-ihdp-cfr-net-predictions-" + str(train_experiments))  # hybrid
 
     print('\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
