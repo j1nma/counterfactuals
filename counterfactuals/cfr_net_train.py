@@ -355,7 +355,7 @@ def mx_run(outdir):
     log(logfile, 'Loaded data with shape [%d,%d]' % (train_dataset['n'], train_dataset['dim']))
 
     # CFR Neural Network Architecture for ITE estimation
-    net = CFRNet(FLAGS.dim_rep, FLAGS.dim_hyp, FLAGS.weight_init_scale, train_dataset['dim'])
+    net = CFRNet(FLAGS.dim_rep, FLAGS.dim_hyp, FLAGS.weight_init_scale, train_dataset['dim'], FLAGS.batch_norm)
 
     # Instantiate net
     net.initialize(ctx=ctx)
