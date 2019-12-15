@@ -576,8 +576,9 @@ def get_cfr_args_parser():
     cfr_parser.add_argument(
         '-bn',
         '--batch_norm',
-        default=0,
-        type=int,
+        type=str2bool,
+        nargs='?',
+        const=False,
         help='Whether to use batch-normalization.'
     )
     cfr_parser.add_argument(
