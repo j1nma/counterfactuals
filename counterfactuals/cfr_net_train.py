@@ -349,7 +349,7 @@ def mx_run(outdir):
     l2_loss = gluon.loss.L2Loss()
     wass_loss = WassersteinLoss(lam=FLAGS.wass_lambda,
                                 its=FLAGS.wass_iterations,
-                                square=True, backpropT=FLAGS.wass_bpg) # Change too at hybrid_test_net_with_cfr
+                                square=True, backpropT=FLAGS.wass_bpg)  # Change too at hybrid_test_net_with_cfr
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
@@ -503,7 +503,7 @@ def mx_run(outdir):
                 log(logfile, '[Epoch %d/%d] Train-rmse-factual: %.3f | L2Loss: %.3f | learning-rate: '
                              '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f' % (
                         epoch, epochs, train_rmse_factual, train_loss, trainer.learning_rate,
-                        obj_loss, imb_err, valid_rmse_factual,))
+                        obj_loss, imb_err, valid_rmse_factual))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
