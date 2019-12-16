@@ -590,7 +590,6 @@ def mx_run_out_of_sample_test(outdir):
     f.close()
 
     ''' Set GPUs/CPUs '''
-    # TODO: dont mix things: imported means and stds have nothing to do with the 75 test "out of sample" data"
     num_gpus = mx.context.num_gpus()
     num_workers = int(FLAGS.num_workers)  # replace num_workers with the number of cores
     ctx = mx.gpu() if num_gpus > 0 else mx.cpu()
