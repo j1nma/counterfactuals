@@ -470,11 +470,6 @@ def mx_run(outdir):
                 outputs = np.zeros(batch_yf.shape)
                 loss = np.zeros(batch_yf.shape)
 
-                # Attach gradients
-                # sample_weight.attach_grad()
-                # x.attach_grad()
-                # batch_yf.attach_grad()
-
                 # Forward (Factual)
                 with autograd.record():
                     t1_o, t0_o, rep_o = net(x, mx.nd.array(t1_idx), mx.nd.array(t0_idx))
@@ -491,33 +486,12 @@ def mx_run(outdir):
                     np.put(outputs, t0_idx, t0_o.asnumpy())
                     risk = risk + t0_o_loss.sum()
 
-                    # rep_o.attach_grad()
                     if FLAGS.normalization == 'divide':
                         h_rep_norm = rep_o / np_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
                     else:
                         h_rep_norm = 1.0 * rep_o
 
-                    ''' Imbalance error '''
-                    p_ipm = 0.5
-
-                    # h_rep_norm.attach_grad()
-                    # imb_dist, _ = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
-                    #                              its=FLAGS.wass_iterations,
-                    #                              sq=True, backpropT=FLAGS.wass_bpg)
-
-                    # wassd = wasserstein_distance(h_rep_norm[t1_idx][0].asnumpy(), h_rep_norm[t0_idx][0].asnumpy())
-                    # imb_dist = h_rep_norm.sum()
-
-                    # print("wassd:\t" + str(wassd) + "\timb_dist:\t" + str(imb_dist))
-
-                    # imb_dist.attach_grad()
-                    # imb_error = FLAGS.p_alpha * imb_dist
-                    # imb_error = FLAGS.p_alpha * wassd
-                    # imb_error.attach_grad()
-
                     imb_dist = wass_loss(h_rep_norm[t1_idx], h_rep_norm[t0_idx])
-
-                    # imb_dist = h_rep_norm.sum()
 
                     imb_error = FLAGS.p_alpha * imb_dist
 
@@ -536,7 +510,6 @@ def mx_run(outdir):
                 rmse_metric.update(batch_yf, mx.nd.array(outputs))
 
                 obj_loss += tot_error.asscalar()
-                # imb_err += imb_error # for wassd
                 imb_err += imb_error.asscalar()
 
             if epoch % FLAGS.epoch_output_iter == 0:
