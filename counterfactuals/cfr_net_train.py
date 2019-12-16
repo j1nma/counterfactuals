@@ -39,7 +39,7 @@ def train(CFR, sess, train_step, D, I_valid, D_test, logfile, i_exp):
                     CFR.do_in: 1.0, CFR.do_out: 1.0, CFR.r_alpha: FLAGS.p_alpha, \
                     CFR.r_lambda: FLAGS.weight_decay, CFR.p_t: p_treated}
 
-    if FLAGS.val_part > 0:
+    if FLAGS.val_size > 0:
         dict_valid = {CFR.x: D['x'][I_valid, :], CFR.t: D['t'][I_valid, :], CFR.y_: D['yf'][I_valid, :], \
                       CFR.do_in: 1.0, CFR.do_out: 1.0, CFR.r_alpha: FLAGS.p_alpha, \
                       CFR.r_lambda: FLAGS.weight_decay, CFR.p_t: p_treated}
@@ -64,7 +64,7 @@ def train(CFR, sess, train_step, D, I_valid, D_test, logfile, i_exp):
     valid_obj = np.nan
     valid_imb = np.nan
     valid_f_error = np.nan
-    if FLAGS.val_part > 0:
+    if FLAGS.val_size > 0:
         valid_obj, valid_f_error, valid_imb = sess.run([CFR.tot_loss, CFR.pred_loss, CFR.imb_dist], \
                                                        feed_dict=dict_valid)
 
@@ -103,7 +103,7 @@ def train(CFR, sess, train_step, D, I_valid, D_test, logfile, i_exp):
             valid_obj = np.nan
             valid_imb = np.nan
             valid_f_error = np.nan
-            if FLAGS.val_part > 0:
+            if FLAGS.val_size > 0:
                 valid_obj, valid_f_error, valid_imb = sess.run([CFR.tot_loss, CFR.pred_loss, CFR.imb_dist],
                                                                feed_dict=dict_valid)
 
@@ -251,9 +251,9 @@ def run(outdir):
             D_exp_test['ycf'] = D_test['ycf'][:, i_exp - 1:i_exp]
 
         ''' Split into training and validation sets '''
-        I_train, I_valid = validation_split(D_exp, FLAGS.val_part)
+        I_train, I_valid = validation_split(D_exp, FLAGS.val_size)
         # TODO: replace?
-        # I_train, I_valid = train_test_split(np.arange(D_exp['x'].shape[0]), test_size=FLAGS.val_part,
+        # I_train, I_valid = train_test_split(np.arange(D_exp['x'].shape[0]), test_size=FLAGS.val_size,
         #                                     random_state=FLAGS.seed)
 
         ''' Run training loop '''
@@ -379,7 +379,7 @@ def mx_run(outdir):
         mu0 = train_dataset['mu0'][:, train_experiment]
         mu1 = train_dataset['mu1'][:, train_experiment]
 
-        train, valid, valid_idx = split_data_in_train_valid(x, t, yf, ycf, mu0, mu1)
+        train, valid = split_data_in_train_valid(x, t, yf, ycf, mu0, mu1, validation_size=FLAGS.val_size)
 
         ''' Train, Valid Evaluators, with labels not normalized '''
         train_evaluator = Evaluator(train['t'], train['yf'], train['ycf'], train['mu0'], train['mu1'])

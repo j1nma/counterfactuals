@@ -61,7 +61,7 @@ def load_data(filename, normalize=False):
 
 def split_data_in_train_valid(x, t, yf, ycf, mu0, mu1, validation_size=0.27, seed=1):
     """ Split train data into train and validation indices.
-        73/27 train/validation split
+        Default 73/27 train/validation split.
     """
     train_idx, valid_idx = train_test_split(np.arange(x.shape[0]), test_size=validation_size, random_state=seed)
 
@@ -79,7 +79,7 @@ def split_data_in_train_valid(x, t, yf, ycf, mu0, mu1, validation_size=0.27, see
              'mu0': mu0[valid_idx],
              'mu1': mu1[valid_idx]}
 
-    return train, valid, valid_idx
+    return train, valid
 
 
 def split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1, test_size=0.1, validation_size=0.27, seed=1):
@@ -251,7 +251,7 @@ def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
             ''' Imbalance error '''
             p_ipm = 0.5
 
-            imb_dist, imb_mat = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
+            imb_dist, imb_mat = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,  # todo change!
                                                its=FLAGS.wass_iterations,
                                                sq=False, backpropT=FLAGS.wass_bpg)
 
@@ -639,12 +639,12 @@ def get_cfr_args_parser():
     )
     cfr_parser.add_argument(
         "-v",
-        "--val_part",
-        default=0.3,
+        "--val_size",
+        default=0.27,
         type=float,
-        help="Validation part."  # TODO: consider changing
+        help="Validation part. Note that this should be small enough to have t=1 samples for validation/testing."
     )
-    cfr_parser.add_argument(  # todo consider removing
+    cfr_parser.add_argument(
         '-so',
         '--split_output',
         type=str2bool,

@@ -25,7 +25,7 @@ data_train='ihdp_npci_1-100.train.npz'
 data_test='ihdp_npci_1-100.test.npz'
 seed=1
 pred_output_iter=200
-val_part=0.3
+val_size=0.27
 split_output=[1]
 reweight_sample=[1]
 
