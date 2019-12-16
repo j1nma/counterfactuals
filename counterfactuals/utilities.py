@@ -562,14 +562,14 @@ def get_cfr_args_parser():
     cfr_parser.add_argument(
         "-id",
         "--dim_rep",
-        default=25,  # TODO: what about 100?
+        default=200,
         type=int,
         help="Dimension of representation layers."
     )
     cfr_parser.add_argument(
         "-hd",
         "--dim_hyp",
-        default=25,  # TODO: what about 100?
+        default=100,
         type=int,
         help="Dimension of hypothesis layers."
     )
@@ -614,7 +614,7 @@ def get_cfr_args_parser():
         '--wass_bpg',
         default=1,
         type=int,
-        help='Whether to backpropagate through T matrix.'  # TODO: consider removing
+        help='Whether to backpropagate through T matrix.'
     )
     cfr_parser.add_argument(
         '-oc',
