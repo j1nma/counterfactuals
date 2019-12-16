@@ -5,10 +5,11 @@ import sys
 import traceback
 import warnings
 
+import mxnet as mx
+import numpy as np
 from mxnet import gluon
 from scipy.stats import sem
 
-from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, get_cfr_args_parser, \
     hybrid_predict_treated_and_controlled_with_cfr
@@ -91,11 +92,12 @@ def mx_run_out_of_sample_test(outdir):
         test_scores[test_experiment, :] = test_score
 
         log(logfile,
-            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(test_experiment + 1,
-                                                                                              test_experiments,
-                                                                                              test_score[0],
-                                                                                              test_score[1],
-                                                                                              test_score[2]))
+            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(
+                test_experiment + 1,
+                test_experiments,
+                test_score[0],
+                test_score[1],
+                test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
     log(logfile, 'test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \

@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from counterfactuals.cfr.net import WassersteinLoss
-from counterfactuals.cfr.util import np_safe_sqrt, np_wasserstein
+from counterfactuals.cfr.util import np_safe_sqrt
 
 
 def log(logfile, s):
@@ -108,78 +108,6 @@ def test_net(net, test_data, ctx):
             outputs = [net(x) for x in data]
         metric.update(label, outputs)
     return metric.get()
-
-
-def test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
-    """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
-    metric = mx.metric.RMSE()
-    metric.reset()
-
-    l2_loss = gluon.loss.L2Loss()
-    obj_loss = 0
-    imb_err = 0
-
-    for i, (x, t, label) in enumerate(test_data_loader):
-        x = x.as_in_context(ctx)
-        t = t.as_in_context(ctx)
-        label = label.as_in_context(ctx)
-
-        # Get treatment and control indices
-        t1_idx = np.where(x[:, -1] == 1)[0]
-        t0_idx = np.where(x[:, -1] == 0)[0]
-
-        # Compute sample reweighing
-        if FLAGS.reweight_sample:
-            w_t = t / (2 * p_treated)
-            w_c = (1 - t) / (2 * 1 - p_treated)
-            sample_weight = w_t + w_c
-        else:
-            sample_weight = 1.0
-
-        # Initialize outputs
-        predictions = np.zeros(label.shape)
-        loss = np.zeros(label.shape)
-
-        with autograd.predict_mode():
-            t1_o, t0_o, rep_o = net(x, t1_idx, t0_idx)
-
-            if t1_idx.shape[0] != 0:
-                np.put(predictions, t1_idx, t1_o.asnumpy())
-                t1_o_loss = l2_loss(t1_o, label[t1_idx], sample_weight[t1_idx])
-                np.put(loss, t1_idx, t1_o_loss.asnumpy())
-
-            np.put(predictions, t0_idx, t0_o.asnumpy())
-            t0_o_loss = l2_loss(t0_o, label[t0_idx], sample_weight[t0_idx])
-            np.put(loss, t0_idx, t0_o_loss.asnumpy())
-
-            risk = t1_o_loss.sum() + t0_o_loss.sum()
-
-            h_rep = rep_o
-            if FLAGS.normalization == 'divide':
-                h_rep_norm = h_rep / np_safe_sqrt(mx.nd.sum(mx.nd.square(h_rep), axis=1, keepdims=True))
-            else:
-                h_rep_norm = 1.0 * h_rep
-
-            ''' Imbalance error '''
-            p_ipm = 0.5
-
-            imb_dist, imb_mat = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
-                                               its=FLAGS.wass_iterations,
-                                               sq=False, backpropT=FLAGS.wass_bpg)
-
-            imb_error = FLAGS.p_alpha * imb_dist
-
-            tot_error = risk
-
-            if FLAGS.p_alpha > 0:
-                tot_error = tot_error + imb_error
-
-        metric.update(label, mx.nd.array(predictions))
-
-        obj_loss += tot_error
-        imb_err += imb_dist
-
-    return metric.get(), obj_loss, imb_err
 
 
 def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
