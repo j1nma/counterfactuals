@@ -412,9 +412,6 @@ def mx_run(outdir):
             means = np.append(means, yf_m)
             stds = np.append(stds, yf_std)
 
-        # todo: what about paper:
-        # "The results of the experiments on IHDP are presented in Table 1 (left).
-        # We average over 1000 realizations of the outcomes with 63/27/10 train/validation/test splits."
         ''' Train dataset '''
         train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(train['x']), mx.nd.array(train['t']),
                                                         mx.nd.array(train['yf']))
