@@ -91,7 +91,7 @@ def mx_run_out_of_sample_test(outdir):
         test_scores[test_experiment, :] = test_score
 
         log(logfile,
-            '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f}'.format(test_experiment + 1,
+            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(test_experiment + 1,
                                                                                               test_experiments,
                                                                                               test_score[0],
                                                                                               test_score[1],

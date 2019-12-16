@@ -349,7 +349,7 @@ def mx_run(outdir):
     l2_loss = gluon.loss.L2Loss()
     wass_loss = WassersteinLoss(lam=FLAGS.wass_lambda,
                                 its=FLAGS.wass_iterations,
-                                square=True, backpropT=FLAGS.wass_bpg)
+                                square=True, backpropT=FLAGS.wass_bpg) # Change too at hybrid_test_net_with_cfr
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)

@@ -6,6 +6,7 @@ from mxnet import gluon, autograd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+from counterfactuals.cfr.net import WassersteinLoss
 from counterfactuals.cfr.util import np_safe_sqrt, np_wasserstein
 
 
@@ -204,13 +205,16 @@ def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
     metric.reset()
 
     l2_loss = gluon.loss.L2Loss()
+    wass_loss = WassersteinLoss(lam=FLAGS.wass_lambda,
+                                its=FLAGS.wass_iterations,
+                                square=True, backpropT=FLAGS.wass_bpg)
     obj_loss = 0
     imb_err = 0
 
-    for i, (x, t, label) in enumerate(test_data_loader):
+    for i, (x, t, batch_yf) in enumerate(test_data_loader):
         x = x.as_in_context(ctx)
         t = t.as_in_context(ctx)
-        label = label.as_in_context(ctx)
+        batch_yf = batch_yf.as_in_context(ctx)
 
         # Get treatment and control indices
         t1_idx = np.where(x[:, -1] == 1)[0]
@@ -224,36 +228,31 @@ def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
         else:
             sample_weight = 1.0
 
-        # Initialize outputs
-        predictions = np.zeros(label.shape)
-        loss = np.zeros(label.shape)
+        ''' Initialize outputs '''
+        outputs = np.zeros(batch_yf.shape)
+        loss = np.zeros(batch_yf.shape)
 
         with autograd.predict_mode():
             t1_o, t0_o, rep_o = net(x, mx.nd.array(t1_idx), mx.nd.array(t0_idx))
 
-            if t1_idx.shape[0] != 0:
-                np.put(predictions, t1_idx, t1_o.asnumpy())
-                t1_o_loss = l2_loss(t1_o, label[t1_idx], sample_weight[t1_idx])
-                np.put(loss, t1_idx, t1_o_loss.asnumpy())
+            risk = 0
 
-            np.put(predictions, t0_idx, t0_o.asnumpy())
-            t0_o_loss = l2_loss(t0_o, label[t0_idx], sample_weight[t0_idx])
+            t1_o_loss = l2_loss(t1_o, batch_yf[t1_idx], sample_weight[t1_idx])
+            np.put(loss, t1_idx, t1_o_loss.asnumpy())
+            np.put(outputs, t1_idx, t1_o.asnumpy())
+            risk = risk + t1_o_loss.sum()
+
+            t0_o_loss = l2_loss(t0_o, batch_yf[t0_idx], sample_weight[t0_idx])
             np.put(loss, t0_idx, t0_o_loss.asnumpy())
+            np.put(outputs, t0_idx, t0_o.asnumpy())
+            risk = risk + t0_o_loss.sum()
 
-            risk = t1_o_loss.sum() + t0_o_loss.sum()
-
-            h_rep = rep_o
             if FLAGS.normalization == 'divide':
-                h_rep_norm = h_rep / np_safe_sqrt(mx.nd.sum(mx.nd.square(h_rep), axis=1, keepdims=True))
+                h_rep_norm = rep_o / np_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
             else:
-                h_rep_norm = 1.0 * h_rep
+                h_rep_norm = 1.0 * rep_o
 
-            ''' Imbalance error '''
-            p_ipm = 0.5
-
-            imb_dist, imb_mat = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,  # todo change!
-                                               its=FLAGS.wass_iterations,
-                                               sq=False, backpropT=FLAGS.wass_bpg)
+            imb_dist = wass_loss(h_rep_norm[t1_idx], h_rep_norm[t0_idx])
 
             imb_error = FLAGS.p_alpha * imb_dist
 
@@ -262,10 +261,10 @@ def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
             if FLAGS.p_alpha > 0:
                 tot_error = tot_error + imb_error
 
-        metric.update(label, mx.nd.array(predictions))
+        metric.update(batch_yf, mx.nd.array(outputs))
 
         obj_loss += tot_error
-        imb_err += imb_dist
+        imb_err += imb_error
 
     return metric.get(), obj_loss, imb_err
 
