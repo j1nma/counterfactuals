@@ -13,7 +13,7 @@ from counterfactuals.cfr.cfr_net import cfr_net
 from counterfactuals.cfr.net import CFRNet, WassersteinLoss
 from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
-from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser, \
+from counterfactuals.utilities import log, load_data, get_cfr_args_parser, \
     split_data_in_train_valid, hybrid_test_net_with_cfr, \
     hybrid_predict_treated_and_controlled_with_cfr
 

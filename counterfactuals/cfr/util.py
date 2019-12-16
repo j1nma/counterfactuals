@@ -5,6 +5,23 @@ import tensorflow as tf
 SQRT_CONST = 1e-10
 
 
+def validation_split(D_exp, val_fraction):
+    """ Construct a train/validation split """
+    n = D_exp['x'].shape[0]
+
+    if val_fraction > 0:
+        n_valid = int(val_fraction * n)
+        n_train = n - n_valid
+        I = np.random.permutation(range(0, n))
+        I_train = I[:n_train]
+        I_valid = I[n_train:]
+    else:
+        I_train = range(n)
+        I_valid = []
+
+    return I_train, I_valid
+
+
 def save_config(fname, FLAGS):
     """ Save configuration """
     flag_dictionary = FLAGS.__dict__

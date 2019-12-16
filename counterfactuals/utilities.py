@@ -10,23 +10,6 @@ from counterfactuals.cfr.net import WassersteinLoss
 from counterfactuals.cfr.util import np_safe_sqrt, np_wasserstein
 
 
-def validation_split(D_exp, val_fraction):
-    """ Construct a train/validation split """
-    n = D_exp['x'].shape[0]
-
-    if val_fraction > 0:
-        n_valid = int(val_fraction * n)
-        n_train = n - n_valid
-        I = np.random.permutation(range(0, n))
-        I_train = I[:n_train]
-        I_valid = I[n_train:]
-    else:
-        I_train = range(n)
-        I_valid = []
-
-    return I_train, I_valid
-
-
 def log(logfile, s):
     """ Log a string into a file and print it. """
     with open(logfile, 'a', encoding='utf8') as f:
