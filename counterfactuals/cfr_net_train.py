@@ -9,10 +9,9 @@ import warnings
 
 from mxnet import gluon, autograd
 from scipy.stats import sem
-from scipy.stats import wasserstein_distance
 
 from counterfactuals.cfr.cfr_net import cfr_net
-from counterfactuals.cfr.net import CFRNet
+from counterfactuals.cfr.net import CFRNet, WassersteinLoss
 from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, validation_split, get_cfr_args_parser, \
@@ -81,7 +80,7 @@ def train(CFR, sess, train_step, D, I_valid, D_test, logfile, i_exp):
     for i in range(FLAGS.iterations):
 
         ''' Fetch sample '''
-        I = random.sample(range(0, n_train), FLAGS.batch_size)
+        I = random.sample(range(0, n_train), FLAGS.batch_size_per_unit)
         x_batch = D['x'][I_train, :][I, :]
         t_batch = D['t'][I_train, :][I]
         y_batch = D['yf'][I_train, :][I]
@@ -364,6 +363,9 @@ def mx_run(outdir):
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
     l2_loss = gluon.loss.L2Loss()
+    wass_loss = WassersteinLoss(lam=FLAGS.wass_lambda,
+                                its=FLAGS.wass_iterations,
+                                square=True, backpropT=FLAGS.wass_bpg)
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
@@ -469,9 +471,9 @@ def mx_run(outdir):
                 loss = np.zeros(batch_yf.shape)
 
                 # Attach gradients
-                sample_weight.attach_grad()
-                x.attach_grad()
-                batch_yf.attach_grad()
+                # sample_weight.attach_grad()
+                # x.attach_grad()
+                # batch_yf.attach_grad()
 
                 # Forward (Factual)
                 with autograd.record():
@@ -489,7 +491,7 @@ def mx_run(outdir):
                     np.put(outputs, t0_idx, t0_o.asnumpy())
                     risk = risk + t0_o_loss.sum()
 
-                    rep_o.attach_grad()
+                    # rep_o.attach_grad()
                     if FLAGS.normalization == 'divide':
                         h_rep_norm = rep_o / np_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
                     else:
@@ -498,21 +500,26 @@ def mx_run(outdir):
                     ''' Imbalance error '''
                     p_ipm = 0.5
 
-                    h_rep_norm.attach_grad()
-                    imb_dist, _ = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
-                                                 its=FLAGS.wass_iterations,
-                                                 sq=False, backpropT=FLAGS.wass_bpg)
+                    # h_rep_norm.attach_grad()
+                    # imb_dist, _ = np_wasserstein(h_rep_norm, t, p_ipm, lam=FLAGS.wass_lambda,
+                    #                              its=FLAGS.wass_iterations,
+                    #                              sq=True, backpropT=FLAGS.wass_bpg)
 
-                    wassd = wasserstein_distance(h_rep_norm[t1_idx][0].asnumpy(), h_rep_norm[t0_idx][0].asnumpy())
-
+                    # wassd = wasserstein_distance(h_rep_norm[t1_idx][0].asnumpy(), h_rep_norm[t0_idx][0].asnumpy())
                     # imb_dist = h_rep_norm.sum()
 
                     # print("wassd:\t" + str(wassd) + "\timb_dist:\t" + str(imb_dist))
 
-                    imb_dist.attach_grad()
+                    # imb_dist.attach_grad()
                     # imb_error = FLAGS.p_alpha * imb_dist
-                    imb_error = FLAGS.p_alpha * wassd
+                    # imb_error = FLAGS.p_alpha * wassd
                     # imb_error.attach_grad()
+
+                    imb_dist = wass_loss(h_rep_norm[t1_idx], h_rep_norm[t0_idx])
+
+                    # imb_dist = h_rep_norm.sum()
+
+                    imb_error = FLAGS.p_alpha * imb_dist
 
                     tot_error = risk
 
@@ -529,20 +536,20 @@ def mx_run(outdir):
                 rmse_metric.update(batch_yf, mx.nd.array(outputs))
 
                 obj_loss += tot_error.asscalar()
-                imb_err += imb_error
-                # imb_err += imb_error.asscalar()
+                # imb_err += imb_error # for wassd
+                imb_err += imb_error.asscalar()
 
             if epoch % FLAGS.epoch_output_iter == 0:
                 _, train_rmse_factual = rmse_metric.get()
                 train_loss /= number_of_batches
-                (_, valid_rmse_factual), valid_obj, valid_imb = hybrid_test_net_with_cfr(net, valid_factual_loader, ctx,
-                                                                                         FLAGS,
-                                                                                         np.mean(valid['t']))
+                (_, valid_rmse_factual), _, _ = hybrid_test_net_with_cfr(net, valid_factual_loader, ctx,
+                                                                         FLAGS,
+                                                                         np.mean(valid['t']))
                 print(
                     '[Epoch %d/%d] Train-rmse-factual: %.3f | L2Loss: %.3f | learning-rate: '
                     '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f' % (
                         epoch, epochs, train_rmse_factual, train_loss, trainer.learning_rate,
-                        obj_loss, imb_err, valid_rmse_factual))
+                        obj_loss, imb_err, valid_rmse_factual,))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
@@ -661,8 +668,7 @@ def mx_run_out_of_sample_test():
         test_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(x), mx.nd.array(t), mx.nd.array(yf))
 
         # Test DataLoader
-        test_rmse_ite_loader = gluon.data.DataLoader(test_factual_dataset, batch_size=batch_size,
-                                                     shuffle=False,
+        test_rmse_ite_loader = gluon.data.DataLoader(test_factual_dataset, batch_size=batch_size, shuffle=False,
                                                      num_workers=num_workers)
 
         # Test model with test data
@@ -702,8 +708,8 @@ def main(argv=None):
 
     try:  # todo fix this please, find good practice, if test, dont create above dir
         # run(outdir)
-        # mx_run(outdir)
-        mx_run_out_of_sample_test()
+        mx_run(outdir)
+        # mx_run_out_of_sample_test()
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
