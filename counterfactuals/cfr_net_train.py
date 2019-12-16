@@ -412,7 +412,7 @@ def mx_run(outdir):
             stds = np.append(stds, yf_std)
 
         # todo: what about paper:
-        # "The results of the experiments on IHDP are pre- sented in Table 1 (left).
+        # "The results of the experiments on IHDP are presented in Table 1 (left).
         # We average over 1000 realizations of the outcomes with 63/27/10 train/validation/test splits."
         # Train dataset
         train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(train['x']), mx.nd.array(train['t']),
@@ -456,7 +456,7 @@ def mx_run(outdir):
                 t0_idx = np.where(t == 0)[0]
 
                 if t1_idx.shape[0] == 0:
-                    log(logfile, 'Encountered no treatment samples at batch ' + str(i))
+                    log(logfile, 'Encountered no treatment samples at batch ' + str(i) + '.')
 
                 # Compute sample reweighing
                 if FLAGS.reweight_sample:
