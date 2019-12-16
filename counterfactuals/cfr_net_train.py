@@ -318,11 +318,12 @@ def mx_run(outdir):
     learning_rate_factor = float(FLAGS.learning_rate_factor)
     learning_rate_steps = int(FLAGS.learning_rate_steps)  # changes the learning rate for every n updates.
 
+    # Logging # todo consistent commenting '''''
     logfile = outdir + 'log.txt'
     f = open(logfile, 'w')
     f.close()
     data_train = FLAGS.data_dir + FLAGS.data_train
-    data_train_test = FLAGS.data_dir + FLAGS.data_test
+    data_train_valid = FLAGS.data_dir + FLAGS.data_test
 
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
@@ -350,7 +351,7 @@ def mx_run(outdir):
     train_dataset = load_data(data_train, normalize=FLAGS.normalize_input)
 
     log(logfile, 'Training data: ' + data_train)
-    log(logfile, 'Test data:     ' + data_train_test)
+    log(logfile, 'Valid data:     ' + data_train_valid)
     log(logfile, 'Loaded data with shape [%d,%d]' % (train_dataset['n'], train_dataset['dim']))
 
     # CFR Neural Network Architecture for ITE estimation
@@ -518,9 +519,9 @@ def mx_run(outdir):
                 (_, valid_rmse_factual), _, _ = hybrid_test_net_with_cfr(net, valid_factual_loader, ctx,
                                                                          FLAGS,
                                                                          np.mean(valid['t']))
-                print(
-                    '[Epoch %d/%d] Train-rmse-factual: %.3f | L2Loss: %.3f | learning-rate: '
-                    '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f' % (
+
+                log(logfile, '[Epoch %d/%d] Train-rmse-factual: %.3f | L2Loss: %.3f | learning-rate: '
+                             '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f' % (
                         epoch, epochs, train_rmse_factual, train_loss, trainer.learning_rate,
                         obj_loss, imb_err, valid_rmse_factual,))
 
@@ -543,15 +544,15 @@ def mx_run(outdir):
         valid_score = valid_evaluator.get_metrics(y_t1, y_t0)
         valid_scores[train_experiment, :] = valid_score
 
-        print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' valid RMSE ITE: {:0.3f}, valid ATE: {:0.3f}, valid PEHE: {:0.3f}'.format(train_experiment + 1,
-                                                                                         train_experiments,
-                                                                                         train_score[0],
-                                                                                         train_score[1],
-                                                                                         train_score[2],
-                                                                                         valid_score[0],
-                                                                                         valid_score[1],
-                                                                                         valid_score[2]))
+        log(logfile, '[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+                     ' valid RMSE ITE: {:0.3f}, valid ATE: {:0.3f}, valid PEHE: {:0.3f}'.format(train_experiment + 1,
+                                                                                                train_experiments,
+                                                                                                train_score[0],
+                                                                                                train_score[1],
+                                                                                                train_score[2],
+                                                                                                valid_score[0],
+                                                                                                valid_score[1],
+                                                                                                valid_score[2]))
 
     if FLAGS.normalize_input:
         # Save means and stds NDArray values for inference
@@ -561,24 +562,20 @@ def mx_run(outdir):
     # Export trained models. See mxnet.apache.org/api/python/docs/tutorials/packages/gluon/blocks/save_load_params.html
     net.export(outdir + FLAGS.architecture.lower() + "-ihdp-predictions-" + str(train_experiments))  # hybrid
 
-    print('\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
+    log(logfile, '\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
 
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
     train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}' \
                              ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
 
     means, stds = np.mean(valid_scores, axis=0), sem(valid_scores, axis=0, ddof=0)
-    valid_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}' \
+    valid_total_scores_str = 'valid RMSE ITE: {:.2f} ± {:.2f}, valid ATE: {:.2f} ± {:.2f}, valid PEHE: {:.2f} ± {:.2f}' \
         .format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
 
-    print(train_total_scores_str)
-    print(valid_total_scores_str)
+    log(logfile, train_total_scores_str)
+    log(logfile, valid_total_scores_str)
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
-
-    with open(outdir + FLAGS.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
-              encoding="utf8") as text_file:
-        print(train_total_scores_str, "\n", train_total_scores_str, file=text_file)
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
@@ -586,7 +583,13 @@ def mx_run(outdir):
             "mean_duration": mean_duration}
 
 
-def mx_run_out_of_sample_test():
+# todo file not found friendly error
+def mx_run_out_of_sample_test(outdir):
+    # Logging
+    logfile = outdir + 'log.txt'
+    f = open(logfile, 'w')
+    f.close()
+
     # TODO: dont mix things: imported means and stds have nothing to do with the 75 test "out of sample" data"
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
@@ -651,7 +654,7 @@ def mx_run_out_of_sample_test():
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[test_experiment, :] = test_score
 
-        print(
+        log(logfile,
             '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f}'.format(test_experiment + 1,
                                                                                               test_experiments,
                                                                                               test_score[0],
@@ -659,8 +662,8 @@ def mx_run_out_of_sample_test():
                                                                                               test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
-          ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
+    log(logfile, 'test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
+                 ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
 
 def main(argv=None):
@@ -681,8 +684,8 @@ def main(argv=None):
 
     try:  # todo fix this please, find good practice, if test, dont create above dir
         # run(outdir)
-        mx_run(outdir)
-        # mx_run_out_of_sample_test()
+        # mx_run(outdir)
+        mx_run_out_of_sample_test(outdir)
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))

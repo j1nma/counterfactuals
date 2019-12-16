@@ -28,7 +28,7 @@ def validation_split(D_exp, val_fraction):
 
 def log(logfile, s):
     """ Log a string into a file and print it. """
-    with open(logfile, 'a') as f:
+    with open(logfile, 'a', encoding='utf8') as f:
         f.write(s + '\n')
     print(s)
 
