@@ -581,7 +581,6 @@ def mx_run(outdir):
             "mean_duration": mean_duration}
 
 
-# todo file not found friendly error
 def mx_run_out_of_sample_test(outdir):
     """ Runs a set of test experiments and stores result in a directory. """
 
@@ -603,7 +602,7 @@ def mx_run_out_of_sample_test(outdir):
     test_dataset = load_data(FLAGS.data_dir + FLAGS.data_test, normalize=FLAGS.normalize_input)
 
     ''' Import CFRNet '''
-    with warnings.catch_warnings():
+    try:
         warnings.simplefilter("ignore")
         net_prefix = FLAGS.results_dir + "/" + FLAGS.architecture.lower() + "-ihdp-predictions-" + str(
             FLAGS.experiments) + "-"
@@ -611,6 +610,12 @@ def mx_run_out_of_sample_test(outdir):
                                            ['data0', 'data1', 'data2'],
                                            net_prefix + "0000.params",
                                            ctx=ctx)
+    except Exception as e:
+        with open(outdir + 'error.txt', 'w') as errfile:
+            errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
+        print(e.args[0].split('Stack trace')[0])
+        print("More details at:\t" + str(outdir + 'error.txt'))
+        sys.exit(-1)
 
     ''' Calculate number of test experiments '''
     test_experiments = test_dataset['x'].shape[2]
