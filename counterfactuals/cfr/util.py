@@ -262,11 +262,11 @@ def np_wasserstein(X, t, p, lam=10, its=10, sq=False, backpropT=False):  # TODO
     nt = np.float(Xt.shape[0])
     nc = np.float(Xc.shape[0])
 
-    ''' Compute distance matrix'''
+    ''' Compute distance matrix (opposite to clinicalml) '''
     if sq:
-        M = np_pdist2sq(Xt, Xc)
-    else:
         M = np_safe_sqrt(np_pdist2sq(Xt, Xc))
+    else:
+        M = np_pdist2sq(Xt, Xc)
 
     ''' Estimate lambda and delta '''
     M_mean = mx.nd.mean(M)
