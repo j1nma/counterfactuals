@@ -134,16 +134,6 @@ def train(CFR, sess, train_step, D, I_valid, D_test, logfile, i_exp):
                                                                  CFR.do_out: 1.0})
                 preds_test.append(np.concatenate((y_pred_f_test, y_pred_cf_test), axis=1))
 
-            if FLAGS.save_rep and i_exp == 1:
-                reps_i = sess.run([CFR.h_rep], feed_dict={CFR.x: D['x'], \
-                                                          CFR.do_in: 1.0, CFR.do_out: 0.0})
-                reps.append(reps_i)
-
-                if D_test is not None:
-                    reps_test_i = sess.run([CFR.h_rep], feed_dict={CFR.x: D_test['x'], \
-                                                                   CFR.do_in: 1.0, CFR.do_out: 0.0})
-                    reps_test.append(reps_test_i)
-
     return losses, preds_train, preds_test, reps, reps_test
 
 
@@ -293,12 +283,6 @@ def run(outdir):
         np.savez(npzfile, pred=out_preds_train, loss=out_losses, val=np.array(all_valid))
 
         np.savez(npzfile_test, pred=out_preds_test)
-
-        ''' Save representations '''
-        if FLAGS.save_rep and i_exp == 1:
-            np.savez(repfile, rep=reps)
-
-            np.savez(repfile_test, rep=reps_test)
 
 
 def mx_run(outdir):

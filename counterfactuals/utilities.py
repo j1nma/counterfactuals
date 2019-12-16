@@ -637,13 +637,6 @@ def get_cfr_args_parser():
         type=int,
         help="Number of delay iterations between prediction outputs. (-1 gives no intermediate output)."
     )
-    cfr_parser.add_argument(  # TODO: consider removing
-        '-sp',
-        '--save_rep',
-        default=0,
-        type=int,
-        help='Whether to save representations after training.'
-    )
     cfr_parser.add_argument(
         "-v",
         "--val_part",
