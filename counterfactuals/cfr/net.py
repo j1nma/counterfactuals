@@ -111,7 +111,7 @@ class CFRNet(nn.HybridBlock):
 
 
 class WassersteinLoss(Loss):
-    def __init__(self, p=0.5, lam=10, its=10, square=False, backpropT=False, margin=6., weight=None, batch_axis=0,
+    def __init__(self, p=0.5, lam=10, its=10, square=False, backpropT=False, weight=None, batch_axis=0,
                  **kwargs):
         super(WassersteinLoss, self).__init__(weight, batch_axis, **kwargs)
         self.p = p
@@ -119,7 +119,6 @@ class WassersteinLoss(Loss):
         self.its = its
         self.square = square
         self.backpropT = backpropT
-        self.margin = margin
 
     def hybrid_forward(self, F, Xt, Xc):
         nt = np.float(Xt.shape[0])
