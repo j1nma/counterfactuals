@@ -119,16 +119,16 @@ class WassersteinLoss(Loss):
         self.backpropT = backpropT
 
     def hybrid_forward(self, F, Xt, Xc):
-        from counterfactuals.utilities import mx_safe_sqrt, np_pdist2sq
+        from counterfactuals.utilities import mx_safe_sqrt, mx_pdist2sq
 
         nt = np.float(Xt.shape[0])
         nc = np.float(Xc.shape[0])
 
         ''' Compute distance matrix (opposite to clinicalml) '''
         if self.square:
-            M = mx_safe_sqrt(np_pdist2sq(Xt, Xc))
+            M = mx_safe_sqrt(mx_pdist2sq(Xt, Xc))
         else:
-            M = np_pdist2sq(Xt, Xc)
+            M = mx_pdist2sq(Xt, Xc)
 
         ''' Estimate lambda and delta '''
         M_mean = mx.nd.mean(M)

@@ -11,7 +11,7 @@ from counterfactuals.cfr.net import WassersteinLoss
 SQRT_CONST = 1e-10
 
 
-def np_pdist2sq(X, Y):
+def mx_pdist2sq(X, Y):
     """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
     C = -2 * mx.nd.dot(X, mx.nd.transpose(Y))
     nx = mx.nd.sum(mx.nd.square(X), 1, keepdims=True)

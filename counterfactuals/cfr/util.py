@@ -56,17 +56,6 @@ def pdist2sq(X, Y):
     return D
 
 
-def mx_pdist2sq(X, Y):
-    """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
-    # mx
-    mx_C = -2 * mx.sym.dot(X, mx.symbol.transpose(Y))
-    mx_nx = mx.symbol.sum(mx.symbol.square(X), 1, keepdims=True)
-    mx_ny = mx.symbol.sum(mx.symbol.square(Y), 1, keepdims=True)
-    mx_D = (mx_C + mx.symbol.transpose(mx_ny)) + mx_nx
-
-    return mx_D
-
-
 def wasserstein(X, t, p, lam=10, its=10, sq=False, backpropT=False):
     """ Returns the Wasserstein distance between treatment groups """
 
