@@ -100,7 +100,7 @@ def run(args, outdir):
         mu0 = train_dataset['mu0'][:, train_experiment]
         mu1 = train_dataset['mu1'][:, train_experiment]
 
-        train, valid, test = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
+        train, valid, test, _ = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
 
         # With-in sample
         train_evaluator = Evaluator(np.concatenate([train['t'], valid['t']]),
@@ -212,7 +212,7 @@ def run(args, outdir):
                                                                                       test_score[2]))
 
     # Save means and stds NDArray values for inference
-    mx.nd.save(outdir + 'nn4_means_stds_ihdp_' + str(train_experiments) + '_.nd',
+    mx.nd.save(outdir + args.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
                {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
     # Export trained model
@@ -221,11 +221,11 @@ def run(args, outdir):
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
 
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    train_total_scores_str = 'train RMSE ITE: {:.2f}±{:.2f}, train ATE: {:.2f}±{:.2f}, train PEHE: {:.2f}±{:.2f}' \
+    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}' \
                              ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    test_total_scores_str = 'test RMSE ITE: {:.2f}±{:.2f}, test ATE: {:.2f}±{:.2f}, test PEHE: {:.2f}±{:.2f}' \
+    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}' \
                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
 
     print(train_total_scores_str)
@@ -261,8 +261,7 @@ def run_test(args):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        net = gluon.nn.SymbolBlock.imports(args.symbol, ['data'], args.params,
-                                           ctx=ctx)
+        net = gluon.nn.SymbolBlock.imports(args.symbol, ['data'], args.params, ctx=ctx)
 
     # Calculate number of test experiments
     test_experiments = np.min([test_dataset['x'].shape[2], len(train_means)])
@@ -301,12 +300,12 @@ def run_test(args):
         test_scores[test_experiment, :] = test_score
 
         print(
-            '[Test Replication {}/{}]: RMSE ITE: {:0.3f}, ATE: {:0.3f}, PEHE: {:0.3f},'.format(test_experiment + 1,
-                                                                                               test_experiments,
-                                                                                               test_score[0],
-                                                                                               test_score[1],
-                                                                                               test_score[2]))
+            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(test_experiment + 1,
+                                                                                                  test_experiments,
+                                                                                                  test_score[0],
+                                                                                                  test_score[1],
+                                                                                                  test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    print('test RMSE ITE: {:.3f}±{:.3f}, test ATE: {:.3f}±{:.3f}, test PEHE: {:.3f}±{:.3f}' \
+    print('test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
           ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))

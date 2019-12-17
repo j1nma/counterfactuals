@@ -4,33 +4,37 @@ import mxnet as mx
 import numpy as np
 from mxnet import gluon, autograd
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+from counterfactuals.cfr.net import WassersteinLoss
+
+SQRT_CONST = 1e-10
 
 
-def validation_split(D_exp, val_fraction):
-    """ Construct a train/validation split """
-    n = D_exp['x'].shape[0]
+def mx_pdist2sq(X, Y):
+    """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
+    C = -2 * mx.nd.dot(X, mx.nd.transpose(Y))
+    nx = mx.nd.sum(mx.nd.square(X), 1, keepdims=True)
+    ny = mx.nd.sum(mx.nd.square(Y), 1, keepdims=True)
+    D = (C + mx.nd.transpose(ny)) + nx
 
-    if val_fraction > 0:
-        n_valid = int(val_fraction * n)
-        n_train = n - n_valid
-        I = np.random.permutation(range(0, n))
-        I_train = I[:n_train]
-        I_valid = I[n_train:]
-    else:
-        I_train = range(n)
-        I_valid = []
-
-    return I_train, I_valid
+    return D
 
 
-def log(logfile, str):
+def mx_safe_sqrt(x, lbound=SQRT_CONST):
+    """ Numerically safe version based on TensorFlow sqrt. """
+
+    return mx.nd.sqrt(mx.nd.clip(x, lbound, np.inf))
+
+
+def log(logfile, s):
     """ Log a string into a file and print it. """
-    with open(logfile, 'a') as f:
-        f.write(str + '\n')
-    print(str)
+    with open(logfile, 'a', encoding='utf8') as f:
+        f.write(s + '\n')
+    print(s)
 
 
-def load_data(filename):
+def load_data(filename, normalize=False):
     if filename[-3:] != 'npz':
         raise Exception("Data file format is not npz.")
 
@@ -45,19 +49,51 @@ def load_data(filename):
     data['dim'] = data['x'].shape[1]
     data['n'] = data['x'].shape[0]
 
-    # TODO: normalize input option
-    # Adjust binary feature at index 13: {1, 2} -> {0, 1}
-    # data['x'][:, 13] -= 1
+    if normalize:
+        # Adjust binary feature at index 13: {1, 2} -> {0, 1}
+        data['x'][:, 13] -= 1
 
-    # Normalize the continuous features
-    # for experiment in range(data['x'][:, :6, :].shape[2]):
-    #     data['x'][:, :6, experiment] = StandardScaler().fit_transform(data['x'][:, :6, experiment])
+        # Normalize the continuous features
+        for experiment in range(data['x'][:, :6, :].shape[2]):
+            data['x'][:, :6, experiment] = StandardScaler().fit_transform(data['x'][:, :6, experiment])
 
     return data
 
 
+def save_config(filename, FLAGS):
+    """ Save configuration file """
+    flag_dictionary = FLAGS.__dict__
+    s = '\n'.join(['%s: %s' % (k, str(flag_dictionary[k])) for k in sorted(flag_dictionary.keys())])
+    f = open(filename, 'w')
+    f.write(s)
+    f.close()
+
+
+def split_data_in_train_valid(x, t, yf, ycf, mu0, mu1, validation_size=0.27, seed=1):
+    """ Split train data into train and validation indices.
+        Default 73/27 train/validation split.
+    """
+    train_idx, valid_idx = train_test_split(np.arange(x.shape[0]), test_size=validation_size, random_state=seed)
+
+    train = {'x': x[train_idx],
+             't': t[train_idx],
+             'yf': yf[train_idx],
+             'ycf': ycf[train_idx],
+             'mu0': mu0[train_idx],
+             'mu1': mu1[train_idx]}
+
+    valid = {'x': x[valid_idx],
+             't': t[valid_idx],
+             'yf': yf[valid_idx],
+             'ycf': ycf[valid_idx],
+             'mu0': mu0[valid_idx],
+             'mu1': mu1[valid_idx]}
+
+    return train, valid
+
+
 def split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1, test_size=0.1, validation_size=0.27, seed=1):
-    """ Split train data into train, validation and test indexes.
+    """ Split train data into train, validation and test indices.
         63/27/10 train/validation/test split
     """
     train_valid_idx, test_idx = train_test_split(np.arange(x.shape[0]), test_size=test_size, random_state=seed)
@@ -84,7 +120,7 @@ def split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1, test_size=0.1, valid
             'mu0': mu0[test_idx],
             'mu1': mu1[test_idx]}
 
-    return train, valid, test
+    return train, valid, test, valid_idx
 
 
 def test_net(net, test_data, ctx):
@@ -100,6 +136,76 @@ def test_net(net, test_data, ctx):
     return metric.get()
 
 
+def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
+    """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
+    metric = mx.metric.RMSE()
+    metric.reset()
+
+    l2_loss = gluon.loss.L2Loss()
+    wass_loss = WassersteinLoss(lam=FLAGS.wass_lambda,
+                                its=FLAGS.wass_iterations,
+                                square=True, backpropT=FLAGS.wass_bpg)
+    obj_loss = 0
+    imb_err = 0
+
+    for i, (x, t, batch_yf) in enumerate(test_data_loader):
+        x = x.as_in_context(ctx)
+        t = t.as_in_context(ctx)
+        batch_yf = batch_yf.as_in_context(ctx)
+
+        # Get treatment and control indices
+        t1_idx = np.where(x[:, -1] == 1)[0]
+        t0_idx = np.where(x[:, -1] == 0)[0]
+
+        # Compute sample reweighing
+        if FLAGS.reweight_sample:
+            w_t = t / (2 * p_treated)
+            w_c = (1 - t) / (2 * 1 - p_treated)
+            sample_weight = w_t + w_c
+        else:
+            sample_weight = 1.0
+
+        ''' Initialize outputs '''
+        outputs = np.zeros(batch_yf.shape)
+        loss = np.zeros(batch_yf.shape)
+
+        with autograd.predict_mode():
+            t1_o, t0_o, rep_o = net(x, mx.nd.array(t1_idx), mx.nd.array(t0_idx))
+
+            risk = 0
+
+            t1_o_loss = l2_loss(t1_o, batch_yf[t1_idx], sample_weight[t1_idx])
+            np.put(loss, t1_idx, t1_o_loss.asnumpy())
+            np.put(outputs, t1_idx, t1_o.asnumpy())
+            risk = risk + t1_o_loss.sum()
+
+            t0_o_loss = l2_loss(t0_o, batch_yf[t0_idx], sample_weight[t0_idx])
+            np.put(loss, t0_idx, t0_o_loss.asnumpy())
+            np.put(outputs, t0_idx, t0_o.asnumpy())
+            risk = risk + t0_o_loss.sum()
+
+            if FLAGS.normalization == 'divide':
+                h_rep_norm = rep_o / mx_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
+            else:
+                h_rep_norm = 1.0 * rep_o
+
+            imb_dist = wass_loss(h_rep_norm[t1_idx], h_rep_norm[t0_idx])
+
+            imb_error = FLAGS.p_alpha * imb_dist
+
+            tot_error = risk
+
+            if FLAGS.p_alpha > 0:
+                tot_error = tot_error + imb_error
+
+        metric.update(batch_yf, mx.nd.array(outputs))
+
+        obj_loss += tot_error
+        imb_err += imb_error
+
+    return metric.get(), obj_loss, imb_err
+
+
 def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
     """ Predict treated and controlled outcomes. """
 
@@ -111,11 +217,48 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
         t0_features = mx.nd.concat(x[0], mx.nd.zeros((len(x[0]), 1)))
         t1_features = mx.nd.concat(x[0], mx.nd.ones((len(x[0]), 1)))
 
-        t0_controlled_predicted = net(t0_features)
-        t1_treated_predicted = net(t1_features)
+        with autograd.predict_mode():
+            t0_controlled_predicted = net(t0_features)
+            t1_treated_predicted = net(t1_features)
 
         y_t0 = np.append(y_t0, t0_controlled_predicted)
         y_t1 = np.append(y_t1, t1_treated_predicted)
+
+    return y_t0, y_t1
+
+
+def predict_treated_and_controlled_with_cfr(net, data_loader, ctx):
+    """ Predict treated and controlled outcomes. """
+
+    y_t1 = np.array([])
+    y_t0 = np.array([])
+
+    for i, (x, _, _) in enumerate(data_loader):
+        x = x.as_in_context(ctx)
+
+        with autograd.predict_mode():
+            t1_treated_predicted, t0_controlled_predicted, _ = net(x, mx.nd.arange(len(x)), mx.nd.arange(len(x)))
+
+        y_t1 = np.append(y_t1, t1_treated_predicted)
+        y_t0 = np.append(y_t0, t0_controlled_predicted)
+
+    return y_t0, y_t1
+
+
+def hybrid_predict_treated_and_controlled_with_cfr(net, data_loader, ctx):
+    """ Predict treated and controlled outcomes. """
+
+    y_t1 = np.array([])
+    y_t0 = np.array([])
+
+    for i, (x, _, _) in enumerate(data_loader):
+        x = x.as_in_context(ctx)
+
+        with autograd.predict_mode():
+            t1_treated_predicted, t0_controlled_predicted, _ = net(x, mx.nd.arange(len(x)), mx.nd.arange(len(x)))
+
+        y_t1 = np.append(y_t1, t1_treated_predicted)
+        y_t0 = np.append(y_t0, t0_controlled_predicted)
 
     return y_t0, y_t1
 
@@ -141,6 +284,17 @@ def predict_treated_and_controlled_with_cnn(net, test_rmse_ite_loader, ctx):
         y_t1 = np.append(y_t1, t1_treated_predicted)
 
     return y_t0, y_t1
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected, received:\t' + str(type(bool)))
 
 
 def get_parent_args_parser():
@@ -174,9 +328,21 @@ def get_parent_args_parser():
         help="Learning rate factor."
     )
     parent_parser.add_argument(
+        "-ls",
+        "--learning_rate_steps",
+        default=2000,
+        help="Changes the learning rate for every given number of updates."
+    )
+    parent_parser.add_argument(
         "-od",
         "--outdir",
         default='results/ihdp'
+    )
+    parent_parser.add_argument(
+        "-rsd",
+        "--results_dir",
+        default='results/ihdp',
+        help="Only when testing, to later find mean, stds, params and symbol files."
     )
     parent_parser.add_argument(
         "-dd",
@@ -216,18 +382,26 @@ def get_parent_args_parser():
         type=int,
         help="Mini-batch size per processing unit."
     )
+    parent_parser.add_argument(
+        "-wd",
+        "--weight_decay",
+        default=0.0001,
+        type=float,
+        help="Weight decay L2 regularization parameter."
+    )
+    parent_parser.add_argument(
+        "-ei",
+        "--epoch_output_iter",
+        default=10,
+        type=int,
+        help="Print results after given number of epochs."
+    )
 
     return parent_parser
 
 
 def get_nn_args_parser():
     parser = argparse.ArgumentParser(fromfile_prefix_chars='@', parents=[get_parent_args_parser()])
-    parser.add_argument(
-        "-wd",
-        "--weight_decay",
-        default=0.0001,
-        help="L2 weight decay lambda."
-    )
     parser.add_argument(
         "-is",
         "--input_size",
@@ -239,12 +413,6 @@ def get_nn_args_parser():
         "--hidden_size",
         default=25,
         help="Number of hidden nodes per layer."
-    )
-    parser.add_argument(
-        "-ls",
-        "--learning_rate_steps",
-        default=2000,
-        help="Changes the learning rate for every given number of updates."
     )
     parser.add_argument(
         "-a",
@@ -300,13 +468,6 @@ def get_cfr_args_parser():
         help="Imbalance penalty."
     )
     cfr_parser.add_argument(
-        "-ld",
-        "--p_lambda",
-        default=0.0001,
-        type=float,
-        help="Weight decay regularization parameter."
-    )
-    cfr_parser.add_argument(
         '-rd',
         '--rep_weight_decay',
         default=0,
@@ -335,31 +496,25 @@ def get_cfr_args_parser():
         help="RMSProp decay."
     )
     cfr_parser.add_argument(
-        "-bz",
-        "--batch_size",
-        default=100,
-        type=int,
-        help="Batch size."
-    )
-    cfr_parser.add_argument(
         "-id",
         "--dim_rep",
-        default=25,  # TODO: what about 100?
+        default=200,
         type=int,
         help="Dimension of representation layers."
     )
     cfr_parser.add_argument(
         "-hd",
         "--dim_hyp",
-        default=25,  # TODO: what about 100?
+        default=100,
         type=int,
         help="Dimension of hypothesis layers."
     )
     cfr_parser.add_argument(
         '-bn',
         '--batch_norm',
-        default=0,
-        type=int,
+        type=str2bool,
+        nargs='?',
+        const=False,
         help='Whether to use batch-normalization.'
     )
     cfr_parser.add_argument(
@@ -395,7 +550,7 @@ def get_cfr_args_parser():
         '--wass_bpg',
         default=1,
         type=int,
-        help='Whether to backpropagate through T matrix.'  # TODO: consider removing
+        help='Whether to backpropagate through T matrix.'
     )
     cfr_parser.add_argument(
         '-oc',
@@ -418,33 +573,36 @@ def get_cfr_args_parser():
         type=int,
         help="Number of delay iterations between prediction outputs. (-1 gives no intermediate output)."
     )
-    cfr_parser.add_argument(  # TODO: consider removing
-        '-sp',
-        '--save_rep',
-        default=0,
-        type=int,
-        help='Whether to save representations after training.'
-    )
     cfr_parser.add_argument(
         "-v",
-        "--val_part",
-        default=0.3,
+        "--val_size",
+        default=0.27,
         type=float,
-        help="Validation part."  # TODO: consider changing
+        help="Validation part. Note that this should be small enough to have t=1 samples for validation/testing."
     )
     cfr_parser.add_argument(
         '-so',
         '--split_output',
-        default=False,
-        type=bool,
+        type=str2bool,
+        nargs='?',
+        const=True,
         help='Whether to split output layers between treated and control.'
     )
     cfr_parser.add_argument(
         '-rw',
         '--reweight_sample',
-        default=True,
-        type=bool,
+        type=str2bool,
+        nargs='?',
+        const=True,
         help='Whether to reweight sample for prediction loss with average treatment probability.'
+    )
+    cfr_parser.add_argument(
+        "-ni",
+        "--normalize_input",
+        type=str2bool,
+        nargs='?',
+        const=True,
+        help='Whether to normalize input.'
     )
 
     return cfr_parser
