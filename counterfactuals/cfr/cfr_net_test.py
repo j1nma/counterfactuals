@@ -46,8 +46,8 @@ def mx_run_out_of_sample_test(outdir):
                                            net_prefix + "0000.params",
                                            ctx=ctx)
     except Exception as e:
-        with open(outdir + 'error.txt', 'w') as errfile:
-            errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
+        with open(outdir + 'error.txt', 'w') as error_file:
+            error_file.write(''.join(traceback.format_exception(*sys.exc_info())))
         print(e.args[0].split('Stack trace')[0])
         print("More details at:\t" + str(outdir + 'error.txt'))
         sys.exit(-1)
@@ -125,8 +125,8 @@ def main(argv=None):
     try:
         mx_run_out_of_sample_test(outdir)
     except Exception as e:
-        with open(outdir + 'error.txt', 'w') as errfile:
-            errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
+        with open(outdir + 'error.txt', 'w') as error_file:
+            error_file.write(''.join(traceback.format_exception(*sys.exc_info())))
         raise
 
 

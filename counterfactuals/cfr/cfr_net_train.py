@@ -319,8 +319,8 @@ def main():
     try:
         mx_run(outdir)
     except Exception as e:
-        with open(outdir + 'error.txt', 'w') as errfile:
-            errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
+        with open(outdir + 'error.txt', 'w') as error_file:
+            error_file.write(''.join(traceback.format_exception(*sys.exc_info())))
         raise
 
 

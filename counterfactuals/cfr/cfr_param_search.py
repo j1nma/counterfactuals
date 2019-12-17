@@ -6,6 +6,10 @@ from subprocess import call
 import numpy as np
 
 
+# For the purpose of manipulating run configurations, configuration methods from below are based on those accessed at:
+# https://github.com/clinicalml/cfrnet/blob/master/cfr_param_search.py
+
+
 def load_config(cfg_file):
     cfg = {}
 

@@ -15,7 +15,7 @@ class CFRNet(nn.HybridBlock):
         self.batch_norm = batch_norm
 
         with self.name_scope():
-            self.nonlin = nn.Activation(activation='relu')
+            self.relu = nn.Activation(activation='relu')
 
             # Representation Layers
             self.rep_fc1 = nn.Dense(rep_hidden_size,
@@ -85,13 +85,13 @@ class CFRNet(nn.HybridBlock):
 
     def hybrid_forward(self, F, x, t1_indices, t0_indices):
         if self.batch_norm:
-            rep_relu1 = self.nonlin(self.rep_fc1_bn(self.rep_fc1(x)))
-            rep_relu2 = self.nonlin(self.rep_fc2_bn(self.rep_fc2(rep_relu1)))
-            rep_relu3 = self.nonlin(self.rep_fc3_bn(self.rep_fc3(rep_relu2)))
+            rep_relu1 = self.relu(self.rep_fc1_bn(self.rep_fc1(x)))
+            rep_relu2 = self.relu(self.rep_fc2_bn(self.rep_fc2(rep_relu1)))
+            rep_relu3 = self.relu(self.rep_fc3_bn(self.rep_fc3(rep_relu2)))
         else:
-            rep_relu1 = self.nonlin(self.rep_fc1(x))
-            rep_relu2 = self.nonlin(self.rep_fc2(rep_relu1))
-            rep_relu3 = self.nonlin(self.rep_fc3(rep_relu2))
+            rep_relu1 = self.relu(self.rep_fc1(x))
+            rep_relu2 = self.relu(self.rep_fc2(rep_relu1))
+            rep_relu3 = self.relu(self.rep_fc3(rep_relu2))
 
         if F.size_array(t1_indices).__getitem__(0).__gt__(0).__bool__:
             t1_hyp_relu1 = self.t1_hyp_fc1(F.take(rep_relu3, t1_indices))
@@ -109,6 +109,10 @@ class CFRNet(nn.HybridBlock):
 
 
 class WassersteinLoss(Loss):
+    # For the purpose of calculating the Wasserstein distance between distribution,
+    # the algorithm from below was adapted to MXNet from
+    # https://github.com/clinicalml/cfrnet/blob/master/cfr/util.py
+
     def __init__(self, p=0.5, lam=10, its=10, square=False, backpropT=False, weight=None, batch_axis=0,
                  **kwargs):
         super(WassersteinLoss, self).__init__(weight, batch_axis, **kwargs)
