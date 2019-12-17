@@ -570,8 +570,8 @@ def main():
     os.mkdir(outdir)
 
     try:
-        run(outdir)
-        # mx_run(outdir)
+        # run(outdir)
+        mx_run(outdir)
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
