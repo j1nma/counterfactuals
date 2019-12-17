@@ -21,15 +21,6 @@ def validation_split(D_exp, val_fraction):
     return I_train, I_valid
 
 
-def save_config(fname, FLAGS):
-    """ Save configuration """
-    flag_dictionary = FLAGS.__dict__
-    s = '\n'.join(['%s: %s' % (k, str(flag_dictionary[k])) for k in sorted(flag_dictionary.keys())])
-    f = open(fname, 'w')
-    f.write(s)
-    f.close()
-
-
 def safe_sqrt(x, lbound=SQRT_CONST):
     ''' Numerically safe version of TensorFlow sqrt '''
 

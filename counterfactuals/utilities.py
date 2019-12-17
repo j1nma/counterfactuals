@@ -60,6 +60,15 @@ def load_data(filename, normalize=False):
     return data
 
 
+def save_config(filename, FLAGS):
+    """ Save configuration file """
+    flag_dictionary = FLAGS.__dict__
+    s = '\n'.join(['%s: %s' % (k, str(flag_dictionary[k])) for k in sorted(flag_dictionary.keys())])
+    f = open(filename, 'w')
+    f.write(s)
+    f.close()
+
+
 def split_data_in_train_valid(x, t, yf, ycf, mu0, mu1, validation_size=0.27, seed=1):
     """ Split train data into train and validation indices.
         Default 73/27 train/validation split.

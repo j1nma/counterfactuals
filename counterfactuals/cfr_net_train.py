@@ -7,16 +7,17 @@ import time
 import traceback
 
 import mxnet as mx
+import numpy as np
+import tensorflow as tf
 from mxnet import gluon, autograd
 from scipy.stats import sem
 
-from counterfactuals.cfr.cfr_net import cfr_net
+from counterfactuals.cfr.cfr_net import cfr_net, validation_split
 from counterfactuals.cfr.net import CFRNet, WassersteinLoss
-from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, get_cfr_args_parser, \
     split_data_in_train_valid, hybrid_test_net_with_cfr, \
-    hybrid_predict_treated_and_controlled_with_cfr, mx_safe_sqrt
+    hybrid_predict_treated_and_controlled_with_cfr, mx_safe_sqrt, save_config
 
 FLAGS = 0
 
@@ -305,7 +306,6 @@ def mx_run(outdir):
 
     ''' Set random seeds '''
     random.seed(FLAGS.seed)
-    tf.set_random_seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
     mx.random.seed(FLAGS.seed)
 
