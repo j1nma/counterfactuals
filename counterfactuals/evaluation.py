@@ -66,7 +66,7 @@ class Evaluator(object):
 
         y_treated_predicted = np.array([x.asscalar() for x in y_treated_predicted])
         y_controlled_predicted = np.array([x.asscalar() for x in y_controlled_predicted])
-        
+
         y1 = y_treated_predicted
         y0 = y_controlled_predicted
         y_factual_predicted = self.t * y1 + (1 - self.t) * y0
