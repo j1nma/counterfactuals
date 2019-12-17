@@ -15,7 +15,7 @@ from counterfactuals.cfr.util import *
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, get_cfr_args_parser, \
     split_data_in_train_valid, hybrid_test_net_with_cfr, \
-    hybrid_predict_treated_and_controlled_with_cfr
+    hybrid_predict_treated_and_controlled_with_cfr, mx_safe_sqrt
 
 FLAGS = 0
 
@@ -468,7 +468,7 @@ def mx_run(outdir):
                     risk = risk + t0_o_loss.sum()
 
                     if FLAGS.normalization == 'divide':
-                        h_rep_norm = rep_o / np_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
+                        h_rep_norm = rep_o / mx_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
                     else:
                         h_rep_norm = 1.0 * rep_o
 

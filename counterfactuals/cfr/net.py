@@ -3,8 +3,6 @@ import numpy as np
 from mxnet.gluon import nn, HybridBlock
 from mxnet.gluon.loss import Loss
 
-from counterfactuals.cfr.util import np_pdist2sq, np_safe_sqrt
-
 BATCH_NORM_EPSILON = 1e-3
 
 
@@ -121,12 +119,14 @@ class WassersteinLoss(Loss):
         self.backpropT = backpropT
 
     def hybrid_forward(self, F, Xt, Xc):
+        from counterfactuals.utilities import mx_safe_sqrt, np_pdist2sq
+
         nt = np.float(Xt.shape[0])
         nc = np.float(Xc.shape[0])
 
         ''' Compute distance matrix (opposite to clinicalml) '''
         if self.square:
-            M = np_safe_sqrt(np_pdist2sq(Xt, Xc))
+            M = mx_safe_sqrt(np_pdist2sq(Xt, Xc))
         else:
             M = np_pdist2sq(Xt, Xc)
 

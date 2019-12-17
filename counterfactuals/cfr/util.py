@@ -40,19 +40,6 @@ def safe_sqrt(x, lbound=SQRT_CONST):
     return tf.sqrt(tf.clip_by_value(x, lbound, np.inf))
 
 
-def mx_safe_sqrt(x, lbound=SQRT_CONST):
-    ''' Numerically safe version of TensorFlow sqrt '''
-
-    # mx
-    return mx.symbol.sqrt(mx.symbol.clip(x, lbound, np.inf))
-
-
-def np_safe_sqrt(x, lbound=SQRT_CONST):
-    ''' Numerically safe version of TensorFlow sqrt '''
-
-    return mx.nd.sqrt(mx.nd.clip(x, lbound, np.inf))
-
-
 def pdist2sq(X, Y):
     """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
     C = -2 * tf.matmul(X, tf.transpose(Y))
@@ -78,16 +65,6 @@ def mx_pdist2sq(X, Y):
     mx_D = (mx_C + mx.symbol.transpose(mx_ny)) + mx_nx
 
     return mx_D
-
-
-def np_pdist2sq(X, Y):
-    """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
-    C = -2 * mx.nd.dot(X, mx.nd.transpose(Y))
-    nx = mx.nd.sum(mx.nd.square(X), 1, keepdims=True)
-    ny = mx.nd.sum(mx.nd.square(Y), 1, keepdims=True)
-    D = (C + mx.nd.transpose(ny)) + nx
-
-    return D
 
 
 def wasserstein(X, t, p, lam=10, its=10, sq=False, backpropT=False):

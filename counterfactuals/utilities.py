@@ -7,7 +7,24 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from counterfactuals.cfr.net import WassersteinLoss
-from counterfactuals.cfr.util import np_safe_sqrt
+
+SQRT_CONST = 1e-10
+
+
+def np_pdist2sq(X, Y):
+    """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
+    C = -2 * mx.nd.dot(X, mx.nd.transpose(Y))
+    nx = mx.nd.sum(mx.nd.square(X), 1, keepdims=True)
+    ny = mx.nd.sum(mx.nd.square(Y), 1, keepdims=True)
+    D = (C + mx.nd.transpose(ny)) + nx
+
+    return D
+
+
+def mx_safe_sqrt(x, lbound=SQRT_CONST):
+    """ Numerically safe version based on TensorFlow sqrt. """
+
+    return mx.nd.sqrt(mx.nd.clip(x, lbound, np.inf))
 
 
 def log(logfile, s):
@@ -159,7 +176,7 @@ def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
             risk = risk + t0_o_loss.sum()
 
             if FLAGS.normalization == 'divide':
-                h_rep_norm = rep_o / np_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
+                h_rep_norm = rep_o / mx_safe_sqrt(mx.nd.sum(mx.nd.square(rep_o), axis=1, keepdims=True))
             else:
                 h_rep_norm = 1.0 * rep_o
 
