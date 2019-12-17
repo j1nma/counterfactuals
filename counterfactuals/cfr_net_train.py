@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 
+import mxnet as mx
 from mxnet import gluon, autograd
 from scipy.stats import sem
 
@@ -158,7 +159,6 @@ def run(outdir):
     random.seed(FLAGS.seed)
     tf.set_random_seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
-    mx.random.seed(FLAGS.seed)
 
     ''' Save parameters '''
     save_config(outdir + 'config.txt', FLAGS)
@@ -184,11 +184,6 @@ def run(outdir):
     t = tf.placeholder("float", shape=[None, 1], name='t')  # Treatment
     y_ = tf.placeholder("float", shape=[None, 1], name='y_')  # Outcome
 
-    # mx
-    mx_x = mx.sym.Variable(name='x', dtype="float", shape=(None, D['dim']))
-    mx_t = mx.sym.Variable(name='t', dtype="float", shape=(None, 1))
-    mx_y_ = mx.sym.Variable(name='y_', dtype="float", shape=(None, 1))
-
     ''' Parameter placeholders '''
     r_alpha = tf.placeholder("float", name='r_alpha')
     r_lambda = tf.placeholder("float", name='r_lambda')
@@ -196,23 +191,15 @@ def run(outdir):
     do_out = tf.placeholder("float", name='dropout_out')
     p = tf.placeholder("float", name='p_treated')
 
-    # mx
-    mx_r_alpha = mx.sym.Variable(name='r_alpha', dtype="float")
-    mx_r_lambda = mx.sym.Variable(name='r_lambda', dtype="float")
-    mx_do_in = FLAGS.dropout_in
-    mx_do_out = FLAGS.dropout_out
-    mx_p = mx.sym.Variable(name='p_treated', dtype="float")
-
     ''' Define model graph '''
     log(logfile, 'Defining graph...\n')
     dims = [D['dim'], FLAGS.dim_rep, FLAGS.dim_hyp]
-    CFR = cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims,
-                  mx_do_in, mx_do_out, mx_x, mx_t, mx_y_, mx_p)
+    CFR = cfr_net(x, t, y_, p, FLAGS, r_alpha, r_lambda, do_in, do_out, dims)
 
     ''' Set up optimizer '''
     global_step = tf.Variable(0, trainable=False)
-    lr = tf.train.exponential_decay(FLAGS.learning_rate, global_step, \
-                                    NUM_ITERATIONS_PER_DECAY, FLAGS.learning_rate_factor, staircase=True)
+    lr = tf.train.exponential_decay(FLAGS.learning_rate, global_step, NUM_ITERATIONS_PER_DECAY,
+                                    FLAGS.learning_rate_factor, staircase=True)
 
     # TODO
     # opt = tf.train.AdamOptimizer(lr)
@@ -583,8 +570,8 @@ def main():
     os.mkdir(outdir)
 
     try:
-        # run(outdir)
-        mx_run(outdir)
+        run(outdir)
+        # mx_run(outdir)
     except Exception as e:
         with open(outdir + 'error.txt', 'w') as errfile:
             errfile.write(''.join(traceback.format_exception(*sys.exc_info())))
