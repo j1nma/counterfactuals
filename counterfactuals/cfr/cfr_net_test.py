@@ -104,7 +104,7 @@ def mx_run_out_of_sample_test(outdir):
                  ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
 
 
-def main(argv=None):
+def main():
     """ Main entry point for testing a CFR net. """
 
     ''' Parse arguments '''
@@ -124,7 +124,7 @@ def main(argv=None):
 
     try:
         mx_run_out_of_sample_test(outdir)
-    except Exception as e:
+    except Exception:
         with open(outdir + 'error.txt', 'w') as error_file:
             error_file.write(''.join(traceback.format_exception(*sys.exc_info())))
         raise
