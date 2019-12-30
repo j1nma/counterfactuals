@@ -418,7 +418,7 @@ def get_nn_args_parser():
         "-a",
         "--architecture",
         default='nn4',
-        choices=['nn4', 'cnn'],
+        choices=['nn4', 'cnn', 'nn4_vb'],
         help="Neural network architecture to use."
     )
     parser.add_argument(

@@ -4,7 +4,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from counterfactuals import nn4, cnn
+from counterfactuals import nn4, cnn, nn4_vb
 from counterfactuals.utilities import get_nn_args_parser
 
 
@@ -25,6 +25,8 @@ def net_train(config_file):
             return nn4.run(args, outdir)
         elif args.architecture == 'cnn':
             return cnn.run(args, outdir)
+        elif args.architecture == 'nn4_vb':
+            return nn4_vb.run(args, outdir)
         else:
             return "Architecture not found."
 
