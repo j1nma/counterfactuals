@@ -40,6 +40,7 @@ def run(args, outdir):
     train_experiments = int(args.experiments)
     learning_rate_factor = float(args.learning_rate_factor)
     learning_rate_steps = int(args.learning_rate_steps)  # changes the learning rate for every n updates.
+    epoch_output_iter = int(args.epoch_output_iter)
 
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
@@ -194,7 +195,7 @@ def run(args, outdir):
             train_loss /= num_batch
             _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
 
-            if epoch % 50 == 0:
+            if epoch % epoch_output_iter == 0:
                 print('[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
                       '%.3E' % (
                           epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
