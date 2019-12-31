@@ -413,7 +413,7 @@ def run(args, outdir):
 
     with open(outdir + args.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
               encoding="utf8") as text_file:
-        print(train_total_scores_str, "\n", train_total_scores_str, file=text_file)
+        print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),

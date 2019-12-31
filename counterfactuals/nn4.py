@@ -244,7 +244,7 @@ def run(args, outdir):
 
     with open(outdir + args.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
               encoding="utf8") as text_file:
-        print(train_total_scores_str, "\n", train_total_scores_str, file=text_file)
+        print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
 
     # Plot last experiment TSNE visualization # TODO add to all?
     tsne_plot_pca10(data=train['x'],
