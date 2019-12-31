@@ -6,8 +6,6 @@ from matplotlib import pyplot as plt
 from mxnet import gluon
 from mxnet import nd, autograd
 
-from counterfactuals.nn4 import ff4_relu_architecture
-
 config = {
     "num_hidden_layers": 2,
     "num_hidden_units": 200,
@@ -48,7 +46,6 @@ num_layers = config['num_hidden_layers']
 num_hidden = config['num_hidden_units']
 
 net = gluon.nn.Sequential()
-net = ff4_relu_architecture(25)
 with net.name_scope():
     for i in range(num_layers):
         net.add(gluon.nn.Dense(num_hidden, activation="relu"))
