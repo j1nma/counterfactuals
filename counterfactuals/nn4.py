@@ -64,11 +64,12 @@ def run(args, outdir):
     net.initialize(init=init.Xavier(), ctx=ctx)
     net.hybridize()  # hybridize for better performance
 
+    # TODO decide upon
     # Plot net graph
-    x_sym = mx.sym.var('data')
-    sym = net(x_sym)
-    mx.viz.plot_network(sym, title=args.architecture.lower() + "_plot").view(
-        filename=outdir + args.architecture.lower() + "_plot")
+    # x_sym = mx.sym.var('data')
+    # sym = net(x_sym)
+    # mx.viz.plot_network(sym, title=args.architecture.lower() + "_plot").view(
+    #     filename=outdir + args.architecture.lower() + "_plot")
 
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
