@@ -1,7 +1,7 @@
 -a
 nn4_vb
 --iterations
-10
+1
 --learning_rate
 0.001
 --weight_decay
@@ -11,7 +11,7 @@ nn4_vb
 --hidden_size
 25
 --experiments
-3
+1
 --learning_rate_factor
 0.96
 --learning_rate_steps
@@ -30,3 +30,5 @@ data/
 ihdp_npci_1-100.train.npz
 --data_test
 ihdp_npci_1-100.test.npz
+--epoch_output_iter
+5

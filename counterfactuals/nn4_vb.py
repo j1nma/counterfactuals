@@ -18,7 +18,7 @@ from scipy.stats import sem
 
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
-    predict_treated_and_controlled
+    predict_treated_and_controlled, predict_treated_and_controlled_vb
 
 
 def ff4_relu_architecture(hidden_size):
@@ -64,6 +64,7 @@ def generate_weight_sample(layer_param_shapes, mus, rhos, ctx):
     return layer_params, sigmas
 
 
+# TODO code quote all of Var. Bayes
 class BBBLoss(gluon.loss.Loss):
     def __init__(self, ctx, log_prior="gaussian", log_likelihood="softmax_cross_entropy",
                  sigma_p1=1.0, sigma_p2=0.1, pi=0.5, weight=None, batch_axis=0, **kwargs):
@@ -101,6 +102,14 @@ class BBBLoss(gluon.loss.Loss):
 
         return nd.log(first_gaussian + second_gaussian)
 
+    def neg_log_likelihood(y_obs, y_pred, sigma=noise):
+        ''' The network can now be trained with a Gaussian negative log likelihood
+        function (neg_log_likelihood) as loss function assuming a fixed standard deviation (noise).
+        This corresponds to the likelihood cost, the last term in equation 3. '''
+
+        dist = tfp.distributions.Normal(loc=y_pred, scale=sigma)
+        return K.sum(-dist.log_prob(y_obs))
+
     def hybrid_forward(self, F, output, label, params, mus, sigmas, num_batches, sample_weight=None):
         log_likelihood_sum = nd.sum(self.log_softmax_likelihood(output, label))
         prior = None
@@ -111,9 +120,10 @@ class BBBLoss(gluon.loss.Loss):
         log_prior_sum = sum([nd.sum(prior(param)) for param in params])
         log_var_posterior_sum = sum(
             [nd.sum(self.log_gaussian(params[i], mus[i], sigmas[i])) for i in range(len(params))])
-        return 1.0 / num_batches * (log_var_posterior_sum - log_prior_sum) - log_likelihood_sum
+        return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) - log_likelihood_sum
 
 
+# TODO quote
 def evaluate_RMSE(data_iterator, net, layer_params, ctx):
     metric = mx.metric.RMSE()
     metric.reset()
@@ -139,18 +149,19 @@ def run(args, outdir):
     train_experiments = int(args.experiments)
     learning_rate_factor = float(args.learning_rate_factor)
     learning_rate_steps = int(args.learning_rate_steps)  # changes the learning rate for every n updates.
+    epoch_output_iter = int(args.epoch_output_iter)
 
-    config = {
+    config = {  # TODO may need adjustments
         "num_hidden_layers": 2,
         "num_hidden_units": 400,
         "batch_size": 128,
         "epochs": 10,
         "learning_rate": 0.001,
         "num_samples": 1,
-        "pi": 0.25,
+        "pi": 0.5,
         "sigma_p": 1.0,
-        "sigma_p1": 0.75,
-        "sigma_p2": 0.01,
+        "sigma_p1": 1.5,
+        "sigma_p2": 0.1,
     }
 
     # Set GPUs/CPUs
@@ -220,10 +231,12 @@ def run(args, outdir):
 
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
+    l2_loss = gluon.loss.L2Loss()
     bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'])
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    # optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler)
     # trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
     trainer = gluon.Trainer(variational_params, optimizer=optimizer)
 
@@ -317,50 +330,63 @@ def run(args, outdir):
             rmse_metric.reset()
             moving_loss = 0
 
-            for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
+            for i, (p_batch_f_features, p_batch_yf) in enumerate(train_factual_loader):
                 # Get data and labels into slices and copy each slice into a context.
-                batch_f_features = gluon.utils.split_and_load(batch_f_features, ctx_list=ctx, even_split=False)
-                batch_yf = gluon.utils.split_and_load(batch_yf, ctx_list=ctx, even_split=False)
+                batch_f_features = gluon.utils.split_and_load(p_batch_f_features, ctx_list=ctx, even_split=False)
+                batch_yf = gluon.utils.split_and_load(p_batch_yf, ctx_list=ctx, even_split=False)
+
+                i_batch_f_features = p_batch_f_features.as_in_context(ctx[0]).reshape((-1, 26))
+                i_batch_yf = p_batch_yf.as_in_context(ctx[0]).reshape((len(p_batch_yf), -1))
 
                 # Forward
                 with autograd.record():
-                    # generate sample
+                    # Generate sample
                     layer_params, sigmas = generate_weight_sample(shapes, raw_mus, raw_rhos, ctx[0])
 
-                    # overwrite network parameters with sampled parameters
+                    # Overwrite network parameters with sampled parameters # TODO all comments change to ```
                     for sample, param in zip(layer_params, net.collect_params().values()):
                         param._data[0] = sample
 
-                    # forward-propagate the batch
-                    outputs = [net(x) for x in batch_f_features]
+                    # Forward-propagate the batch
+                    # outputs = [net(x) for x in batch_f_features]
+                    # outputs = net(batch_f_features[0])
+                    outputs = net(i_batch_f_features)
 
-                    # calculate the loss
-                    loss = [bbb_loss(yhat, y, layer_params, raw_mus, sigmas, num_batch) for yhat, y in
-                            zip(outputs, batch_yf)]
+                    # Calculate the loss
+                    # loss = [bbb_loss(yhat, y, layer_params, raw_mus, sigmas, num_batch) for yhat, y in
+                    #         zip(outputs, batch_yf)]
+                    # loss = l2_loss(outputs, batch_yf[0])
+                    # loss = l2_loss(outputs, i_batch_yf)
 
-                # Backward
-                for l in loss:
-                    l.backward()
+                    # Calculate the loss
+                    # loss = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
+                    loss = bbb_loss(outputs, i_batch_yf, layer_params, raw_mus, sigmas, num_batch)
+
+                    print("bbb_loss:\t" + str(loss))
+                    print("l2_loss:\t" + str(l2_loss(outputs, i_batch_yf)))
+
+                    # Backpropagate for gradient calculation
+                    loss.backward()
 
                 # Optimize
                 trainer.step(batch_size)
 
                 train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
                 moving_loss = (train_loss if ((i == 0) and (epoch == 0))
-                               else (1 - smoothing_constant) * moving_loss + (smoothing_constant) * train_loss)
-                rmse_metric.update(batch_yf, outputs)
+                               else (1 - smoothing_constant) * moving_loss + smoothing_constant * train_loss)
+                rmse_metric.update(batch_yf[0], outputs)
 
-            if epoch % 50 == 0:
+            if epoch % epoch_output_iter == 0:
                 _, train_rmse_factual = rmse_metric.get()
                 train_loss /= num_batch
                 _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
 
-                _, test_accuracy = evaluate_RMSE(valid_factual_loader, net, raw_mus, ctx)
-                _, train_accuracy = evaluate_RMSE(train_factual_dataset, net, raw_mus, ctx)
-                train_acc.append(np.asscalar(train_accuracy))
-                test_acc.append(np.asscalar(test_accuracy))
-                print("Epoch %s. Loss: %s, Train_acc %s, Test_acc %s" %
-                      (epoch, moving_loss, train_accuracy, test_accuracy))
+                _, train_RMSE = evaluate_RMSE(train_factual_loader, net, raw_mus, ctx)
+                _, test_RMSE = evaluate_RMSE(valid_factual_loader, net, raw_mus, ctx)
+                train_acc.append(np.asscalar(train_RMSE))
+                test_acc.append(np.asscalar(test_RMSE))
+                print("Epoch %s. Moving Loss: %s, Train-RMSE %s, Test-RMSE %s" %
+                      (epoch, moving_loss, train_RMSE, test_RMSE))
 
                 print('[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
                       '%.3E' % (
@@ -369,12 +395,12 @@ def run(args, outdir):
         train_durations[train_experiment, :] = time.time() - train_start
 
         # Test model
-        y_t0, y_t1 = predict_treated_and_controlled(net, train_rmse_ite_loader, ctx)
+        y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, raw_mus, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
 
-        y_t0, y_t1 = predict_treated_and_controlled(net, test_rmse_ite_loader, ctx)
+        y_t0, y_t1 = predict_treated_and_controlled_vb(net, test_rmse_ite_loader, raw_mus, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
