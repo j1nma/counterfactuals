@@ -227,6 +227,30 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
     return y_t0, y_t1
 
 
+def predict_treated_and_controlled_vb(net, test_rmse_ite_loader, layer_params, ctx):
+    """ Predict treated and controlled outcomes. """
+
+    y_t0 = np.array([])
+    y_t1 = np.array([])
+    for i, (x) in enumerate(test_rmse_ite_loader):
+        x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
+
+        t0_features = mx.nd.concat(x[0], mx.nd.zeros((len(x[0]), 1)))
+        t1_features = mx.nd.concat(x[0], mx.nd.ones((len(x[0]), 1)))
+
+        for l_param, param in zip(layer_params, net.collect_params().values()):
+            param._data[0] = l_param
+
+        with autograd.predict_mode():
+            t0_controlled_predicted = net(t0_features)
+            t1_treated_predicted = net(t1_features)
+
+        y_t0 = np.append(y_t0, t0_controlled_predicted)
+        y_t1 = np.append(y_t1, t1_treated_predicted)
+
+    return y_t0, y_t1
+
+
 def predict_treated_and_controlled_with_cfr(net, data_loader, ctx):
     """ Predict treated and controlled outcomes. """
 
