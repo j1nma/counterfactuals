@@ -1,7 +1,7 @@
 -a
 nn4
 --iterations
-100
+500
 --learning_rate
 0.001
 --weight_decay
@@ -11,7 +11,7 @@ nn4
 --hidden_size
 25
 --experiments
-10
+1
 --learning_rate_factor
 0.96
 --learning_rate_steps
