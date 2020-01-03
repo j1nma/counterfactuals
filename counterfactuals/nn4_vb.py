@@ -21,6 +21,8 @@ from counterfactuals.utilities import load_data, split_data_in_train_valid_test,
     predict_treated_and_controlled, predict_treated_and_controlled_vb
 
 
+# cutting condition on difference from last x epochs?
+
 def ff4_relu_architecture(hidden_size):
     net = nn.HybridSequential()
     net.add(nn.Dense(hidden_size, activation='relu'),
@@ -80,47 +82,55 @@ class BBBLoss(gluon.loss.Loss):
         return nd.nansum(y * nd.log_softmax(yhat_linear), axis=0, exclude=True)
 
     def log_gaussian(self, x, mu, sigma):
-        return -0.5 * np.log(2.0 * np.pi) - nd.log(sigma) - (x - mu) ** 2 / (2 * sigma ** 2)
+        """ https://www.wolframalpha.com/input/?i=log%281%2F%28root%282*pi%29*sigma%29+*+exp%28%28-%28x-mu%29**2%29%2F%282*sigma**2%29%29%29 """
+        scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))  # todo nd_gauss
+        bell = nd.exp(- (x - mu) ** 2 / (2.0 * sigma ** 2))
+        return mx.nd.log(scaling * bell)
+
+    def nd_gaussian(self, x, mu, sigma):  # todo re adapt
+        scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))
+        bell = nd.exp(-(x - mu) ** 2 / (2.0 * sigma ** 2))
+        return scaling * bell
 
     def gaussian_prior(self, x):
         sigma_p = nd.array([self.sigma_p1], ctx=self.ctx)
         return nd.sum(self.log_gaussian(x, 0., sigma_p))
 
     def gaussian(self, x, mu, sigma):
-        scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))
+        scaling = 1.0 / np.sqrt(2.0 * np.pi * (sigma ** 2))
         bell = nd.exp(- (x - mu) ** 2 / (2.0 * sigma ** 2))
-
         return scaling * bell
 
     def scale_mixture_prior(self, x):
+        """ log_prior_prob """
         sigma_p1 = nd.array([self.sigma_p1], ctx=self.ctx)
         sigma_p2 = nd.array([self.sigma_p2], ctx=self.ctx)
         pi = self.pi
 
-        first_gaussian = pi * self.gaussian(x, 0., sigma_p1)
-        second_gaussian = (1 - pi) * self.gaussian(x, 0., sigma_p2)
+        first_gaussian = pi * self.nd_gaussian(x, 0., sigma_p1)
+        second_gaussian = (1 - pi) * self.nd_gaussian(x, 0., sigma_p2)
 
-        return nd.log(first_gaussian + second_gaussian)
+        return mx.nd.log(first_gaussian + second_gaussian)
 
-    def neg_log_likelihood(y_obs, y_pred, sigma=noise):
+    def neg_log_likelihood(self, y_obs, y_pred, sigma=1.0):
         ''' The network can now be trained with a Gaussian negative log likelihood
         function (neg_log_likelihood) as loss function assuming a fixed standard deviation (noise).
         This corresponds to the likelihood cost, the last term in equation 3. '''
 
-        dist = tfp.distributions.Normal(loc=y_pred, scale=sigma)
-        return K.sum(-dist.log_prob(y_obs))
+        # LogisticRegressionOutput todo try?
+        return mx.nd.sum(-1 * mx.nd.log(self.gaussian(y_obs, y_pred, sigma)))
 
     def hybrid_forward(self, F, output, label, params, mus, sigmas, num_batches, sample_weight=None):
-        log_likelihood_sum = nd.sum(self.log_softmax_likelihood(output, label))
         prior = None
         if self.log_prior == "gaussian":
             prior = self.gaussian_prior
         elif self.log_prior == "scale_mixture":
             prior = self.scale_mixture_prior
-        log_prior_sum = sum([nd.sum(prior(param)) for param in params])
+        log_prior_sum = sum([nd.sum(prior(mx.nd.array(param))) for param in params])
         log_var_posterior_sum = sum(
-            [nd.sum(self.log_gaussian(params[i], mus[i], sigmas[i])) for i in range(len(params))])
-        return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) - log_likelihood_sum
+            [nd.sum(self.log_gaussian(mx.nd.array(params[i]), mx.nd.array(mus[i]), mx.nd.array(sigmas[i]))) for i in
+             range(len(params))])
+        return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) + self.neg_log_likelihood(label, output)
 
 
 # TODO quote
@@ -152,16 +162,9 @@ def run(args, outdir):
     epoch_output_iter = int(args.epoch_output_iter)
 
     config = {  # TODO may need adjustments
-        "num_hidden_layers": 2,
-        "num_hidden_units": 400,
-        "batch_size": 128,
-        "epochs": 10,
-        "learning_rate": 0.001,
-        "num_samples": 1,
+        "sigma_p1": 0.75,
+        "sigma_p2": 0.5,
         "pi": 0.5,
-        "sigma_p": 1.0,
-        "sigma_p1": 1.5,
-        "sigma_p2": 0.1,
     }
 
     # Set GPUs/CPUs
@@ -231,8 +234,8 @@ def run(args, outdir):
 
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
-    l2_loss = gluon.loss.L2Loss()
-    bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'])
+    bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
+                       pi=config['pi'])
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     # optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
@@ -362,18 +365,24 @@ def run(args, outdir):
                     # loss = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
                     loss = bbb_loss(outputs, i_batch_yf, layer_params, raw_mus, sigmas, num_batch)
 
-                    print("bbb_loss:\t" + str(loss))
-                    print("l2_loss:\t" + str(l2_loss(outputs, i_batch_yf)))
+                    # print("bbb_loss:\t" + str(loss))
+                    # print("l2_loss:\t" + str(l2_loss(outputs, i_batch_yf)))
 
                     # Backpropagate for gradient calculation
                     loss.backward()
 
                 # Optimize
-                trainer.step(batch_size)
+                trainer.step(batch_size, ignore_stale_grad=True)
+
+                if np.isnan(sum([l.mean().asscalar() for l in loss]) / len(loss)):
+                    a = 1
 
                 train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
-                moving_loss = (train_loss if ((i == 0) and (epoch == 0))
-                               else (1 - smoothing_constant) * moving_loss + smoothing_constant * train_loss)
+
+                # Calculate moving loss for monitoring convergence #todo remove?
+                curr_loss = nd.mean(loss).asscalar()
+                moving_loss = (curr_loss if ((i == 0) and (epoch == 0))
+                               else (1 - smoothing_constant) * moving_loss + smoothing_constant * curr_loss)
                 rmse_metric.update(batch_yf[0], outputs)
 
             if epoch % epoch_output_iter == 0:
