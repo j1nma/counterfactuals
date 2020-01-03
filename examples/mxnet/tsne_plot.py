@@ -12,7 +12,7 @@ from sklearn.manifold import TSNE
 from counterfactuals.utilities import load_data
 
 
-def tse_plot_pca10(data, label, learned_label=None):
+def tsne_plot_pca10(data, label, learned_label=None):
     X = data
     y = label
     print(X.shape, y.shape)
@@ -77,11 +77,11 @@ def tse_plot_pca10(data, label, learned_label=None):
         )
         fig.add_subplot(ax)
 
-    plt.savefig('tse_c={}.svg'.format(n_components), format="svg")
+    plt.savefig('tsne_c={}.svg'.format(n_components), format="svg")
 
 
 def main():
-    """ Main entry point for TSE plotting. """
+    """ Main entry point for TSNE plotting. """
 
     data_dir = '../data/'
     data_train = 'ihdp_npci_1-100.train.npz'
@@ -92,7 +92,7 @@ def main():
     data = ihdp['x'][:, :, train_experiment]
     label = ihdp['yf'][:, train_experiment]
 
-    tse_plot_pca10(data=data, label=label)
+    tsne_plot_pca10(data=data, label=label)
 
 
 if __name__ == '__main__':
