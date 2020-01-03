@@ -18,6 +18,7 @@ from scipy.stats import sem
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
     predict_treated_and_controlled
+from examples.mxnet.tse_plot import tse_plot_pca10
 
 
 def ff4_relu_architecture(hidden_size):
@@ -88,6 +89,9 @@ def run(args, outdir):
     # Train experiments means and stds
     means = np.array([])
     stds = np.array([])
+
+    # Outputs of last experiment for TSE visualization
+    last_exp_outputs = []
 
     # Train
     for train_experiment in range(train_experiments):
@@ -171,6 +175,11 @@ def run(args, outdir):
                     outputs = [net(x) for x in batch_f_features]
                     loss = [l2_loss(yhat, y) for yhat, y in zip(outputs, batch_yf)]
 
+                    # Save last epoch of last experiment outputs for TSE vis.
+                    if train_experiment == range(train_experiments)[-1] \
+                            and epoch == range(epochs + 1)[-1]:
+                        last_exp_outputs.extend(outputs[0].reshape(-1, ).asnumpy())
+
                 # Backward
                 for l in loss:
                     l.backward()
@@ -237,6 +246,11 @@ def run(args, outdir):
               encoding="utf8") as text_file:
         print(train_total_scores_str, "\n", train_total_scores_str, file=text_file)
 
+    # Plot last experiment TSE visualization # TODO add to all?
+    tse_plot_pca10(data=train['x'],
+                   label=train['yf'],
+                   learned_label=np.array(last_exp_outputs))
+
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
             "pehe": "{:.2f} ± {:.2f}".format(means[2], stds[2]),
@@ -300,11 +314,12 @@ def run_test(args):
         test_scores[test_experiment, :] = test_score
 
         print(
-            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(test_experiment + 1,
-                                                                                                  test_experiments,
-                                                                                                  test_score[0],
-                                                                                                  test_score[1],
-                                                                                                  test_score[2]))
+            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(
+                test_experiment + 1,
+                test_experiments,
+                test_score[0],
+                test_score[1],
+                test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
     print('test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
