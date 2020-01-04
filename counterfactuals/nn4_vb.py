@@ -73,29 +73,24 @@ class BBBLoss(gluon.loss.Loss):
                  sigma_p1=1.0, sigma_p2=0.1, pi=0.5, weight=None, batch_axis=0, **kwargs):
         super(BBBLoss, self).__init__(weight, batch_axis, **kwargs)
         self.log_prior = log_prior
-        self.log_likelihood = log_likelihood
         self.sigma_p1 = sigma_p1
         self.sigma_p2 = sigma_p2
         self.pi = pi
         self.ctx = ctx
 
-    def log_softmax_likelihood(self, yhat_linear, y):
-        return nd.nansum(y * nd.log_softmax(yhat_linear), axis=0, exclude=True)
-
     def log_gaussian(self, x, mu, sigma):
-        """ https://www.wolframalpha.com/input/?i=log%281%2F%28root%282*pi%29*sigma%29+*+exp%28%28-%28x-mu%29**2%29%2F%282*sigma**2%29%29%29 """
-        scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))  # todo nd_gauss
-        bell = nd.exp(- (x - mu) ** 2 / (2.0 * sigma ** 2))
-        return mx.nd.log(scaling * bell)
-
-    def nd_gaussian(self, x, mu, sigma):  # todo re adapt
-        scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))
-        bell = nd.exp(-(x - mu) ** 2 / (2.0 * sigma ** 2))
-        return scaling * bell
+        """ https://bit.ly/2QqJbzL """
+        return mx.nd.log(self.nd_gaussian(x, mu, sigma))
 
     def gaussian_prior(self, x):
         sigma_p = nd.array([self.sigma_p1], ctx=self.ctx)
         return nd.sum(self.log_gaussian(x, 0., sigma_p))
+
+    def nd_gaussian(self, x, mu, sigma):
+        '''  nd.sqrt instead of np.sqrt '''
+        scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))
+        bell = nd.exp(-(x - mu) ** 2 / (2.0 * sigma ** 2))
+        return scaling * bell
 
     def gaussian(self, x, mu, sigma):
         scaling = 1.0 / np.sqrt(2.0 * np.pi * (sigma ** 2))
@@ -114,11 +109,13 @@ class BBBLoss(gluon.loss.Loss):
         return mx.nd.log(first_gaussian + second_gaussian)
 
     def neg_log_likelihood(self, y_obs, y_pred, sigma=1.0):
+        """ Loss for regressional tasks """
+        ''' from http://krasserm.github.io/2019/03/14/bayesian-neural-networks/ '''
+
         ''' The network can now be trained with a Gaussian negative log likelihood
         function (neg_log_likelihood) as loss function assuming a fixed standard deviation (noise).
         This corresponds to the likelihood cost, the last term in equation 3. '''
 
-        # LogisticRegressionOutput todo try?
         return mx.nd.sum(-1 * mx.nd.log(self.gaussian(y_obs, y_pred, sigma)))
 
     def hybrid_forward(self, F, output, label, params, mus, sigmas, num_batches, sample_weight=None):
