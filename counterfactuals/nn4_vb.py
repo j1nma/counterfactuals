@@ -21,7 +21,7 @@ from counterfactuals.utilities import load_data, split_data_in_train_valid_test,
     predict_treated_and_controlled, predict_treated_and_controlled_vb
 
 
-# cutting condition on difference from last x epochs?
+# todo cutting condition on difference from last x epochs?
 
 def ff4_relu_architecture(hidden_size):
     net = nn.HybridSequential()
@@ -54,13 +54,13 @@ def transform_gaussian_samples(mus, sigmas, epsilons):
 
 
 def generate_weight_sample(layer_param_shapes, mus, rhos, ctx):
-    # sample epsilons from standard normal
+    ''' sample epsilons from standard normal '''
     epsilons = sample_epsilons(layer_param_shapes, ctx)
 
-    # compute softplus for variance
+    ''' compute softplus for variance '''
     sigmas = transform_rhos(rhos)
 
-    # obtain a sample from q(w|theta) by transforming the epsilons
+    ''' obtain a sample from q(w|theta) by transforming the epsilons '''
     layer_params = transform_gaussian_samples(mus, sigmas, epsilons)
 
     return layer_params, sigmas
@@ -152,7 +152,7 @@ def evaluate_RMSE(data_iterator, net, layer_params, ctx):
 
 
 def run(args, outdir):
-    # Hyperparameters
+    ''' Hyperparameters '''
     epochs = int(args.iterations)
     learning_rate = float(args.learning_rate)
     hidden_size = int(args.hidden_size)
@@ -162,30 +162,30 @@ def run(args, outdir):
     epoch_output_iter = int(args.epoch_output_iter)
 
     config = {  # TODO may need adjustments
-        "sigma_p1": 0.75,
+        "sigma_p1": 1.75,
         "sigma_p2": 0.5,
         "pi": 0.5,
     }
 
-    # Set GPUs/CPUs
+    ''' Set GPUs/CPUs '''
     num_gpus = mx.context.num_gpus()
     num_workers = int(args.num_workers)  # replace num_workers with the number of cores
     ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     batch_size_per_unit = int(args.batch_size_per_unit)  # mini-batch size
     batch_size = batch_size_per_unit * max(num_gpus, 1)
 
-    # Set seeds
+    ''' Set seeds '''
     for c in ctx:
         mx.random.seed(int(args.seed), c)
     np.random.seed(int(args.seed))
 
-    # Feed Forward Neural Network Model (4 hidden layers)
+    ''' Feed Forward Neural Network Model (4 hidden layers) '''
     net = ff4_relu_architecture(hidden_size)
 
-    # Load datasets
+    ''' Load datasets '''
     train_dataset = load_data('../' + args.data_dir + args.data_train)
 
-    # Instantiate net
+    ''' Instantiate net '''
     ''' Param. init. '''
     net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), ctx=ctx)
     net.hybridize()
@@ -207,7 +207,7 @@ def run(args, outdir):
     weight_scale = .1
     rho_offset = -3
 
-    # Initialize variational parameters; mean and variance for each weight
+    ''' Initialize variational parameters; mean and variance for each weight '''
     mus = []
     rhos = []
 
@@ -232,34 +232,34 @@ def run(args, outdir):
     # mx.viz.plot_network(sym, title=args.architecture.lower() + "_plot").view(
     #     filename=outdir + args.architecture.lower() + "_plot")
 
-    # Metric, Loss and Optimizer
+    ''' Metric, Loss and Optimizer '''
     rmse_metric = mx.metric.RMSE()
     bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
                        pi=config['pi'])
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    # optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
-    optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler)
+    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    # optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler)
     # trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
     trainer = gluon.Trainer(variational_params, optimizer=optimizer)
 
-    # Initialize train score results
+    ''' Initialize train score results '''
     train_scores = np.zeros((train_experiments, 3))
 
-    # Initialize train experiment durations
+    ''' Initialize train experiment durations '''
     train_durations = np.zeros((train_experiments, 1))
 
-    # Initialize test score results
+    ''' Initialize test score results '''
     test_scores = np.zeros((train_experiments, 3))
 
-    # Train experiments means and stds
+    ''' Train experiments means and stds '''
     means = np.array([])
     stds = np.array([])
 
-    # Train
+    ''' Train '''
     for train_experiment in range(train_experiments):
 
-        # Create training dataset
+        ''' Create training dataset '''
         x = train_dataset['x'][:, :, train_experiment]
         t = np.reshape(train_dataset['t'][:, train_experiment], (-1, 1))
         yf = train_dataset['yf'][:, train_experiment]
@@ -269,7 +269,7 @@ def run(args, outdir):
 
         train, valid, test, _ = split_data_in_train_valid_test(x, t, yf, ycf, mu0, mu1)
 
-        # With-in sample
+        ''' With-in sample '''
         train_evaluator = Evaluator(np.concatenate([train['t'], valid['t']]),
                                     np.concatenate([train['yf'], valid['yf']]),
                                     y_cf=np.concatenate([train['ycf'], valid['ycf']], axis=0),
@@ -277,42 +277,42 @@ def run(args, outdir):
                                     mu1=np.concatenate([train['mu1'], valid['mu1']], axis=0))
         test_evaluator = Evaluator(test['t'], test['yf'], test['ycf'], test['mu0'], test['mu1'])
 
-        # Normalize yf
+        ''' Normalize yf '''
         yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
         train['yf'] = (train['yf'] - yf_m) / yf_std
         valid['yf'] = (valid['yf'] - yf_m) / yf_std
         test['yf'] = (test['yf'] - yf_m) / yf_std
 
-        # Save mean and std
+        ''' Save mean and std '''
         means = np.append(means, yf_m)
         stds = np.append(stds, yf_std)
 
-        # Train dataset
+        ''' Train dataset '''
         factual_features = np.hstack((train['x'], train['t']))
         train_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(factual_features), mx.nd.array(train['yf']))
 
-        # With-in sample
+        ''' With-in sample '''
         train_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(np.concatenate([train['x'], valid['x']])))
 
-        # Valid dataset
+        ''' Valid dataset '''
         valid_factual_features = np.hstack((valid['x'], valid['t']))
         valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid_factual_features), mx.nd.array(valid['yf']))
 
-        # Test dataset
+        ''' Test dataset '''
         test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(test['x']))
 
-        # Train DataLoader
+        ''' Train DataLoader '''
         train_factual_loader = gluon.data.DataLoader(train_factual_dataset, batch_size=batch_size, shuffle=True,
                                                      num_workers=num_workers)
         train_rmse_ite_loader = gluon.data.DataLoader(train_rmse_ite_dataset, batch_size=batch_size,
                                                       shuffle=False,
                                                       num_workers=num_workers)
 
-        # Valid DataLoader
+        ''' Valid DataLoader '''
         valid_factual_loader = gluon.data.DataLoader(valid_factual_dataset, batch_size=batch_size, shuffle=False,
                                                      num_workers=num_workers)
 
-        # Test DataLoader
+        ''' Test DataLoader '''
         test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
                                                      shuffle=False,
                                                      num_workers=num_workers)
@@ -325,7 +325,7 @@ def run(args, outdir):
         train_acc = []
         test_acc = []
 
-        # Train model
+        ''' Train model '''
         for epoch in range(1, epochs + 1):  # start with epoch 1 for easier learning rate calculation
 
             start = time.time()
@@ -334,44 +334,44 @@ def run(args, outdir):
             moving_loss = 0
 
             for i, (p_batch_f_features, p_batch_yf) in enumerate(train_factual_loader):
-                # Get data and labels into slices and copy each slice into a context.
+                ''' Get data and labels into slices and copy each slice into a context.'''
                 batch_f_features = gluon.utils.split_and_load(p_batch_f_features, ctx_list=ctx, even_split=False)
                 batch_yf = gluon.utils.split_and_load(p_batch_yf, ctx_list=ctx, even_split=False)
 
                 i_batch_f_features = p_batch_f_features.as_in_context(ctx[0]).reshape((-1, 26))
                 i_batch_yf = p_batch_yf.as_in_context(ctx[0]).reshape((len(p_batch_yf), -1))
 
-                # Forward
+                ''' Forward '''
                 with autograd.record():
-                    # Generate sample
+                    ''' Generate sample '''
                     layer_params, sigmas = generate_weight_sample(shapes, raw_mus, raw_rhos, ctx[0])
 
-                    # Overwrite network parameters with sampled parameters # TODO all comments change to ```
+                    ''' Overwrite network parameters with sampled parameters '''
                     for sample, param in zip(layer_params, net.collect_params().values()):
                         param._data[0] = sample
 
-                    # Forward-propagate the batch
+                    ''' Forward-propagate the batch '''
                     # outputs = [net(x) for x in batch_f_features]
                     # outputs = net(batch_f_features[0])
                     outputs = net(i_batch_f_features)
 
-                    # Calculate the loss
+                    ''' Calculate the loss '''
                     # loss = [bbb_loss(yhat, y, layer_params, raw_mus, sigmas, num_batch) for yhat, y in
                     #         zip(outputs, batch_yf)]
                     # loss = l2_loss(outputs, batch_yf[0])
                     # loss = l2_loss(outputs, i_batch_yf)
 
-                    # Calculate the loss
+                    ''' Calculate the loss '''
                     # loss = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
                     loss = bbb_loss(outputs, i_batch_yf, layer_params, raw_mus, sigmas, num_batch)
 
                     # print("bbb_loss:\t" + str(loss))
                     # print("l2_loss:\t" + str(l2_loss(outputs, i_batch_yf)))
 
-                    # Backpropagate for gradient calculation
+                    ''' Backpropagate for gradient calculation '''
                     loss.backward()
 
-                # Optimize
+                ''' Optimize '''
                 trainer.step(batch_size, ignore_stale_grad=True)
 
                 if np.isnan(sum([l.mean().asscalar() for l in loss]) / len(loss)):
@@ -379,7 +379,7 @@ def run(args, outdir):
 
                 train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
 
-                # Calculate moving loss for monitoring convergence #todo remove?
+                ''' Calculate moving loss for monitoring convergence '''  # todo remove?
                 curr_loss = nd.mean(loss).asscalar()
                 moving_loss = (curr_loss if ((i == 0) and (epoch == 0))
                                else (1 - smoothing_constant) * moving_loss + smoothing_constant * curr_loss)
@@ -403,7 +403,7 @@ def run(args, outdir):
 
         train_durations[train_experiment, :] = time.time() - train_start
 
-        # Test model
+        ''' Test model '''
         y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, raw_mus, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
@@ -424,11 +424,11 @@ def run(args, outdir):
         plt.plot(train_acc)
         plt.plot(test_acc)
 
-    # Save means and stds NDArray values for inference
+    ''' Save means and stds NDArray values for inference '''
     mx.nd.save(outdir + args.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
                {"means": mx.nd.array(means), "stds": mx.nd.array(stds)})
 
-    # Export trained model
+    ''' Export trained model '''
     net.export(outdir + args.architecture.lower() + "-ihdp-predictions-" + str(train_experiments), epoch=epochs)
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
@@ -457,17 +457,17 @@ def run(args, outdir):
 
 
 def run_test(args):
-    # Set GPUs/CPUs
+    ''' Set GPUs/CPUs '''
     num_gpus = mx.context.num_gpus()
     num_workers = int(args.num_workers)  # replace num_workers with the number of cores
     ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     batch_size_per_unit = int(args.batch_size_per_unit)  # mini-batch size
     batch_size = batch_size_per_unit * max(num_gpus, 1)
 
-    # Load test dataset
+    ''' Load test dataset '''
     test_dataset = load_data('../' + args.data_dir + args.data_test)
 
-    # Load training means and stds
+    ''' Load training means and stds '''
     train_means_stds = mx.nd.load(args.means_stds)
     train_means = train_means_stds['means']
     train_stds = train_means_stds['stds']
@@ -476,15 +476,15 @@ def run_test(args):
         warnings.simplefilter("ignore")
         net = gluon.nn.SymbolBlock.imports(args.symbol, ['data'], args.params, ctx=ctx)
 
-    # Calculate number of test experiments
+    ''' Calculate number of test experiments '''
     test_experiments = np.min([test_dataset['x'].shape[2], len(train_means)])
 
-    # Initialize test score results
+    ''' Initialize test score results '''
     test_scores = np.zeros((test_experiments, 3))
 
-    # Test model
+    ''' Test model '''
     for test_experiment in range(test_experiments):
-        # Create testing dataset
+        ''' Create testing dataset '''
         x = test_dataset['x'][:, :, test_experiment]
         t = np.reshape(test_dataset['t'][:, test_experiment], (-1, 1))
         yf = test_dataset['yf'][:, test_experiment]
@@ -492,21 +492,21 @@ def run_test(args):
         mu0 = test_dataset['mu0'][:, test_experiment]
         mu1 = test_dataset['mu1'][:, test_experiment]
 
-        # With-in sample
+        ''' With-in sample '''
         test_evaluator = Evaluator(t, yf, ycf, mu0, mu1)
 
-        # Retrieve training mean and std
+        ''' Retrieve training mean and std '''
         train_yf_m, train_yf_std = train_means[test_experiment].asnumpy(), train_stds[test_experiment].asnumpy()
 
-        # Test dataset
+        ''' Test dataset '''
         test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(x))
 
-        # Test DataLoader
+        ''' Test DataLoader '''
         test_rmse_ite_loader = gluon.data.DataLoader(test_rmse_ite_dataset, batch_size=batch_size,
                                                      shuffle=False,
                                                      num_workers=num_workers)
 
-        # Test model
+        ''' Test model '''
         y_t0, y_t1 = predict_treated_and_controlled(net, test_rmse_ite_loader, ctx)
         y_t0, y_t1 = y_t0 * train_yf_std + train_yf_m, y_t1 * train_yf_std + train_yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
