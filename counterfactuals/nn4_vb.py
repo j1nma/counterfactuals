@@ -66,7 +66,8 @@ def generate_weight_sample(layer_param_shapes, mus, rhos, ctx):
     return layer_params, sigmas
 
 
-# TODO code quote all of Var. Bayes
+# Bayes by Backpropagation Loss
+# from https://gluon.mxnet.io/chapter18_variational-methods-and-uncertainty/bayes-by-backprop-gluon.html
 class BBBLoss(gluon.loss.Loss):
     def __init__(self, ctx, log_prior="gaussian", log_likelihood="softmax_cross_entropy",
                  sigma_p1=1.0, sigma_p2=0.1, pi=0.5, weight=None, batch_axis=0, **kwargs):
@@ -133,7 +134,6 @@ class BBBLoss(gluon.loss.Loss):
         return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) + self.neg_log_likelihood(label, output)
 
 
-# TODO quote
 def evaluate_RMSE(data_iterator, net, layer_params, ctx):
     metric = mx.metric.RMSE()
     metric.reset()
