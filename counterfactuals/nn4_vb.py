@@ -223,12 +223,6 @@ def run(args, outdir):
     raw_mus = list(map(lambda x: x.data(ctx[0]), mus))
     raw_rhos = list(map(lambda x: x.data(ctx[0]), rhos))
 
-    # Plot net graph TODO: change for all
-    # x_sym = mx.sym.var('data')
-    # sym = net(x_sym)
-    # mx.viz.plot_network(sym, title=args.architecture.lower() + "_plot").view(
-    #     filename=outdir + args.architecture.lower() + "_plot")
-
     ''' Metric, Loss and Optimizer '''
     rmse_metric = mx.metric.RMSE()
     bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
@@ -318,17 +312,14 @@ def run(args, outdir):
 
         train_start = time.time()
 
-        smoothing_constant = .01
         train_acc = []
         test_acc = []
 
         ''' Train model '''
         for epoch in range(1, epochs + 1):  # start with epoch 1 for easier learning rate calculation
 
-            start = time.time()
             train_loss = 0
             rmse_metric.reset()
-            moving_loss = 0
 
             for i, (p_batch_f_features, p_batch_yf) in enumerate(train_factual_loader):
                 ''' Get data and labels into slices and copy each slice into a context.'''
@@ -376,11 +367,7 @@ def run(args, outdir):
 
                 train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
 
-                ''' Calculate moving loss for monitoring convergence '''  # todo remove?
-                curr_loss = nd.mean(loss).asscalar()
-                moving_loss = (curr_loss if ((i == 0) and (epoch == 0))
-                               else (1 - smoothing_constant) * moving_loss + smoothing_constant * curr_loss)
-                rmse_metric.update(batch_yf[0], outputs)
+                rmse_metric.update(i_batch_yf, outputs)
 
             if epoch % epoch_output_iter == 0:
                 _, train_rmse_factual = rmse_metric.get()
@@ -391,8 +378,8 @@ def run(args, outdir):
                 _, test_RMSE = evaluate_RMSE(valid_factual_loader, net, raw_mus, ctx)
                 train_acc.append(np.asscalar(train_RMSE))
                 test_acc.append(np.asscalar(test_RMSE))
-                print("Epoch %s. Moving Loss: %s, Train-RMSE %s, Test-RMSE %s" %
-                      (epoch, moving_loss, train_RMSE, test_RMSE))
+                print("Epoch %s. Train-RMSE %s, Test-RMSE %s" %
+                      (epoch, train_RMSE, test_RMSE))
 
                 print('[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
                       '%.3E' % (
