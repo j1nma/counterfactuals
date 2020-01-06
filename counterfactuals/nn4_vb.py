@@ -86,7 +86,7 @@ class BBBLoss(gluon.loss.Loss):
         sigma_p = nd.array([self.sigma_p1], ctx=self.ctx)
         return nd.sum(self.log_gaussian(x, 0., sigma_p))
 
-    def nd_gaussian(self, x, mu, sigma):
+    def nd_gaussian(self, x, mu, sigma):  # TODO probably should be normalized???
         '''  nd.sqrt instead of np.sqrt '''
         scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))
         bell = nd.exp(-(x - mu) ** 2 / (2.0 * sigma ** 2))
@@ -231,7 +231,6 @@ def run(args, outdir):
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
     # optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler)
-    # trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
     trainer = gluon.Trainer(variational_params, optimizer=optimizer)
 
     ''' Initialize train score results '''
@@ -321,13 +320,10 @@ def run(args, outdir):
             train_loss = 0
             rmse_metric.reset()
 
-            for i, (p_batch_f_features, p_batch_yf) in enumerate(train_factual_loader):
+            for i, (batch_f_features, batch_yf) in enumerate(train_factual_loader):
                 ''' Get data and labels into slices and copy each slice into a context.'''
-                batch_f_features = gluon.utils.split_and_load(p_batch_f_features, ctx_list=ctx, even_split=False)
-                batch_yf = gluon.utils.split_and_load(p_batch_yf, ctx_list=ctx, even_split=False)
-
-                i_batch_f_features = p_batch_f_features.as_in_context(ctx[0]).reshape((-1, 26))
-                i_batch_yf = p_batch_yf.as_in_context(ctx[0]).reshape((len(p_batch_yf), -1))
+                batch_f_features = batch_f_features.as_in_context(ctx[0]).reshape((-1, 26))
+                batch_yf = batch_yf.as_in_context(ctx[0]).reshape((len(batch_yf), -1))
 
                 ''' Forward '''
                 with autograd.record():
@@ -339,22 +335,10 @@ def run(args, outdir):
                         param._data[0] = sample
 
                     ''' Forward-propagate the batch '''
-                    # outputs = [net(x) for x in batch_f_features]
-                    # outputs = net(batch_f_features[0])
-                    outputs = net(i_batch_f_features)
+                    outputs = net(batch_f_features)
 
                     ''' Calculate the loss '''
-                    # loss = [bbb_loss(yhat, y, layer_params, raw_mus, sigmas, num_batch) for yhat, y in
-                    #         zip(outputs, batch_yf)]
-                    # loss = l2_loss(outputs, batch_yf[0])
-                    # loss = l2_loss(outputs, i_batch_yf)
-
-                    ''' Calculate the loss '''
-                    # loss = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
-                    loss = bbb_loss(outputs, i_batch_yf, layer_params, raw_mus, sigmas, num_batch)
-
-                    # print("bbb_loss:\t" + str(loss))
-                    # print("l2_loss:\t" + str(l2_loss(outputs, i_batch_yf)))
+                    loss = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
 
                     ''' Backpropagate for gradient calculation '''
                     loss.backward()
@@ -367,7 +351,7 @@ def run(args, outdir):
 
                 train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
 
-                rmse_metric.update(i_batch_yf, outputs)
+                rmse_metric.update(batch_yf, outputs)
 
             if epoch % epoch_output_iter == 0:
                 _, train_rmse_factual = rmse_metric.get()
