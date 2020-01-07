@@ -230,7 +230,6 @@ def run(args, outdir):
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
-    # optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler)
     trainer = gluon.Trainer(variational_params, optimizer=optimizer)
 
     ''' Initialize train score results '''
