@@ -69,8 +69,8 @@ def generate_weight_sample(layer_param_shapes, mus, rhos, ctx):
 # Bayes by Backpropagation Loss
 # from https://gluon.mxnet.io/chapter18_variational-methods-and-uncertainty/bayes-by-backprop-gluon.html
 class BBBLoss(gluon.loss.Loss):
-    def __init__(self, ctx, log_prior="gaussian", log_likelihood="softmax_cross_entropy",
-                 sigma_p1=1.0, sigma_p2=0.1, pi=0.5, weight=None, batch_axis=0, **kwargs):
+    def __init__(self, ctx, log_prior="gaussian", sigma_p1=1.0, sigma_p2=0.1, pi=0.5, weight=None, batch_axis=0,
+                 **kwargs):
         super(BBBLoss, self).__init__(weight, batch_axis, **kwargs)
         self.log_prior = log_prior
         self.sigma_p1 = sigma_p1
@@ -83,19 +83,21 @@ class BBBLoss(gluon.loss.Loss):
         return mx.nd.log(self.nd_gaussian(x, mu, sigma))
 
     def gaussian_prior(self, x):
-        sigma_p = nd.array([self.sigma_p1], ctx=self.ctx)
+        sigma_p = nd.array([1.0], ctx=self.ctx)
+        # sigma_p = nd.array([self.sigma_p1], ctx=self.ctx)
         return nd.sum(self.log_gaussian(x, 0., sigma_p))
 
     def nd_gaussian(self, x, mu, sigma):  # TODO probably should be normalized???
         '''  nd.sqrt instead of np.sqrt '''
         scaling = 1.0 / nd.sqrt(2.0 * np.pi * (sigma ** 2))
         bell = nd.exp(-(x - mu) ** 2 / (2.0 * sigma ** 2))
-        return scaling * bell
+        return scaling * bell + 1e-6
 
     def gaussian(self, x, mu, sigma):
         scaling = 1.0 / np.sqrt(2.0 * np.pi * (sigma ** 2))
         bell = nd.exp(- (x - mu) ** 2 / (2.0 * sigma ** 2))
-        return scaling * bell
+
+        return scaling * bell + 1e-6
 
     def scale_mixture_prior(self, x):
         """ log_prior_prob """
@@ -108,13 +110,16 @@ class BBBLoss(gluon.loss.Loss):
 
         return mx.nd.log(first_gaussian + second_gaussian)
 
-    def neg_log_likelihood(self, y_obs, y_pred, sigma=1.0):
-        """ Loss for regressional tasks """
+    def neg_log_likelihood(self, y_obs, y_pred, sigma=0.5):
+        """ Loss for regression tasks """
         ''' from http://krasserm.github.io/2019/03/14/bayesian-neural-networks/ '''
 
         ''' The network can now be trained with a Gaussian negative log likelihood
         function (neg_log_likelihood) as loss function assuming a fixed standard deviation (noise).
         This corresponds to the likelihood cost, the last term in equation 3. '''
+
+        # sigma = nd.array([sigma])
+        # return mx.nd.sum(-1 * mx.nd.log(self.nd_gaussian(y_obs, y_pred, sigma)))
 
         return mx.nd.sum(-1 * mx.nd.log(self.gaussian(y_obs, y_pred, sigma)))
 
@@ -124,10 +129,15 @@ class BBBLoss(gluon.loss.Loss):
             prior = self.gaussian_prior
         elif self.log_prior == "scale_mixture":
             prior = self.scale_mixture_prior
+
+        # Calculate prior
         log_prior_sum = sum([nd.sum(prior(mx.nd.array(param))) for param in params])
+
+        # Calculate variational posterior
         log_var_posterior_sum = sum(
             [nd.sum(self.log_gaussian(mx.nd.array(params[i]), mx.nd.array(mus[i]), mx.nd.array(sigmas[i]))) for i in
              range(len(params))])
+
         return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) + self.neg_log_likelihood(label, output)
 
 
@@ -159,7 +169,10 @@ def run(args, outdir):
     epoch_output_iter = int(args.epoch_output_iter)
 
     config = {  # TODO may need adjustments
-        "sigma_p1": 1.75,
+        # "sigma_p1": 1.5,
+        "sigma_p1": 1.75,  # og
+        # "sigma_p2": 0.25,
+        # "sigma_p2": 0.5, # og
         "sigma_p2": 0.5,
         "pi": 0.5,
     }
@@ -184,7 +197,8 @@ def run(args, outdir):
 
     ''' Instantiate net '''
     ''' Param. init. '''
-    net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), ctx=ctx)
+    # net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), ctx=ctx)
+    net.collect_params().initialize(ctx=ctx)
     net.hybridize()
 
     x = train_dataset['x'][:, :, 0]
@@ -202,7 +216,11 @@ def run(args, outdir):
         break
 
     weight_scale = .1
+    # weight_scale = np.sqrt(config['pi'] * config['sigma_p1'] ** 2 +
+    #                               config['pi'] * config['sigma_p2'] ** 2)
+
     rho_offset = -3
+    # rho_offset = 0.0
 
     ''' Initialize variational parameters; mean and variance for each weight '''
     mus = []
@@ -230,6 +248,7 @@ def run(args, outdir):
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    # optimizer = mx.optimizer.Adam(learning_rate=learning_rate)
     trainer = gluon.Trainer(variational_params, optimizer=optimizer)
 
     ''' Initialize train score results '''
@@ -343,10 +362,7 @@ def run(args, outdir):
                     loss.backward()
 
                 ''' Optimize '''
-                trainer.step(batch_size, ignore_stale_grad=True)
-
-                if np.isnan(sum([l.mean().asscalar() for l in loss]) / len(loss)):
-                    a = 1
+                trainer.step(batch_size)
 
                 train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
 
