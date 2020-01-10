@@ -3,6 +3,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
+from shutil import copyfile
 
 from counterfactuals import nn4, cnn, nn4_vb
 from counterfactuals.utilities import get_nn_args_parser
@@ -18,6 +19,9 @@ def net_train(config_file):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     outdir = args.outdir + '/' + timestamp + '/'
     os.mkdir(outdir)
+
+    # Save used config
+    copyfile(config_file, outdir + "used_config.txt")
 
     try:
 
