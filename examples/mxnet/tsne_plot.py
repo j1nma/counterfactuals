@@ -77,7 +77,7 @@ def tsne_plot_pca10(data, label, learned_label=None, outdir='/results'):
         )
         fig.add_subplot(ax)
 
-    plt.savefig(outdir + '/tsne_c={}.svg'.format(n_components), format="svg")
+    plt.savefig(outdir + '_tsne_c={}.svg'.format(n_components), format="svg")
 
 
 def main():

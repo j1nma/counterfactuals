@@ -16,6 +16,7 @@ from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, get_cfr_args_parser, \
     split_data_in_train_valid, hybrid_test_net_with_cfr, \
     hybrid_predict_treated_and_controlled_with_cfr, mx_safe_sqrt, save_config
+from examples.mxnet.tsne_plot import tsne_plot_pca10
 
 FLAGS = 0
 
@@ -101,6 +102,9 @@ def mx_run(outdir):
     ''' Train experiments means and stds '''
     means = np.array([])
     stds = np.array([])
+
+    ''' Outputs of last experiment for TSNE visualization '''
+    last_exp_outputs = []
 
     ''' Train '''
     for train_experiment in range(train_experiments):
@@ -215,6 +219,11 @@ def mx_run(outdir):
                     if FLAGS.p_alpha > 0:
                         tot_error = tot_error + imb_error
 
+                    ''' Save last epoch of last experiment outputs for TSNE vis. '''
+                    if train_experiment == range(train_experiments)[-1] \
+                            and epoch == range(epochs + 1)[-1]:
+                        last_exp_outputs.extend(outputs)
+
                 ''' Backward '''
                 tot_error.backward()
 
@@ -291,6 +300,12 @@ def mx_run(outdir):
     log(logfile, valid_total_scores_str)
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
+
+    # Plot last experiment TSNE visualization # TODO add to all?
+    tsne_plot_pca10(data=train['x'],
+                    label=train['yf'],
+                    learned_label=np.array(last_exp_outputs),
+                    outdir=outdir + FLAGS.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
