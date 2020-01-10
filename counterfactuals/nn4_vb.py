@@ -19,9 +19,9 @@ from scipy.stats import sem
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
     predict_treated_and_controlled, predict_treated_and_controlled_vb
-
-
 # todo cutting condition on difference from last x epochs?
+from examples.mxnet.tsne_plot import tsne_plot_pca10
+
 
 def ff4_relu_architecture(hidden_size):
     net = nn.HybridSequential()
@@ -162,6 +162,7 @@ def run(args, outdir):
     ''' Hyperparameters '''
     epochs = int(args.iterations)
     learning_rate = float(args.learning_rate)
+    wd = float(args.weight_decay)
     hidden_size = int(args.hidden_size)
     train_experiments = int(args.experiments)
     learning_rate_factor = float(args.learning_rate_factor)
@@ -248,6 +249,7 @@ def run(args, outdir):
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    # optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
     # optimizer = mx.optimizer.Adam(learning_rate=learning_rate)
     trainer = gluon.Trainer(variational_params, optimizer=optimizer)
 
@@ -263,6 +265,9 @@ def run(args, outdir):
     ''' Train experiments means and stds '''
     means = np.array([])
     stds = np.array([])
+
+    ''' Outputs of last experiment for TSNE visualization '''
+    last_exp_outputs = []
 
     ''' Train '''
     for train_experiment in range(train_experiments):
@@ -358,6 +363,11 @@ def run(args, outdir):
                     ''' Calculate the loss '''
                     loss = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
 
+                    ''' Save last epoch of last experiment outputs for TSNE vis. '''
+                    if train_experiment == range(train_experiments)[-1] \
+                            and epoch == range(epochs + 1)[-1]:
+                        last_exp_outputs.extend(outputs[0].reshape(-1, ).asnumpy())
+
                     ''' Backpropagate for gradient calculation '''
                     loss.backward()
 
@@ -377,8 +387,8 @@ def run(args, outdir):
                 _, test_RMSE = evaluate_RMSE(valid_factual_loader, net, raw_mus, ctx)
                 train_acc.append(np.asscalar(train_RMSE))
                 test_acc.append(np.asscalar(test_RMSE))
-                print("Epoch %s. Train-RMSE %s, Test-RMSE %s" %
-                      (epoch, train_RMSE, test_RMSE))
+                # print("Epoch %s. Train-RMSE %s, Test-RMSE %s" %
+                #       (epoch, train_RMSE, test_RMSE))
 
                 print('[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
                       '%.3E' % (
@@ -432,6 +442,12 @@ def run(args, outdir):
     with open(outdir + args.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
               encoding="utf8") as text_file:
         print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
+
+    # Plot last experiment TSNE visualization # TODO add to all?
+    tsne_plot_pca10(data=train['x'],
+                    label=train['yf'],
+                    learned_label=np.array(last_exp_outputs),
+                    outdir=outdir + args.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
