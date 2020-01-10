@@ -76,7 +76,8 @@ def run(args, outdir):
     l2_loss = gluon.loss.L2Loss()
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
+    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    # optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
     trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
 
     # Initialize train score results
@@ -251,7 +252,8 @@ def run(args, outdir):
     # Plot last experiment TSNE visualization # TODO add to all?
     tsne_plot_pca10(data=train['x'],
                     label=train['yf'],
-                    learned_label=np.array(last_exp_outputs))
+                    learned_label=np.array(last_exp_outputs),
+                    outdir=outdir + args.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
