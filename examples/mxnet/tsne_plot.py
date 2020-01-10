@@ -12,7 +12,7 @@ from sklearn.manifold import TSNE
 from counterfactuals.utilities import load_data
 
 
-def tsne_plot_pca10(data, label, learned_label=None):
+def tsne_plot_pca10(data, label, learned_label=None, outdir='/results'):
     X = data
     y = label
     print(X.shape, y.shape)
@@ -77,7 +77,7 @@ def tsne_plot_pca10(data, label, learned_label=None):
         )
         fig.add_subplot(ax)
 
-    plt.savefig('tsne_c={}.svg'.format(n_components), format="svg")
+    plt.savefig(outdir + '/tsne_c={}.svg'.format(n_components), format="svg")
 
 
 def main():
