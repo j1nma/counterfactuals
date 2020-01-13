@@ -16,7 +16,7 @@ from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, get_cfr_args_parser, \
     split_data_in_train_valid, hybrid_test_net_with_cfr, \
     hybrid_predict_treated_and_controlled_with_cfr, mx_safe_sqrt, save_config
-from examples.mxnet.tsne_plot import tsne_plot_pca10
+from examples.mxnet.tsne_plot import tsne_plot_pca
 
 FLAGS = 0
 
@@ -87,7 +87,8 @@ def mx_run(outdir):
                                 square=True, backpropT=FLAGS.wass_bpg)  # Change too at hybrid_test_net_with_cfr
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
+    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    # optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
     trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
 
     ''' Initialize train score results '''
@@ -302,10 +303,10 @@ def mx_run(outdir):
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
 
     # Plot last experiment TSNE visualization # TODO add to all?
-    tsne_plot_pca10(data=train['x'],
-                    label=train['yf'],
-                    learned_label=np.array(last_exp_outputs),
-                    outdir=outdir + FLAGS.architecture.lower())
+    tsne_plot_pca(data=train['x'],
+                  label=train['yf'],
+                  learned_label=np.array(last_exp_outputs),
+                  outdir=outdir + FLAGS.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),

@@ -99,6 +99,7 @@ def mx_run_out_of_sample_test(outdir):
                 test_score[1],
                 test_score[2]))
 
+    # test_scores = np.sqrt(test_scores) # todo
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
     log(logfile, 'test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
                  ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2]))
