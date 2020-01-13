@@ -12,7 +12,7 @@ from sklearn.manifold import TSNE
 from counterfactuals.utilities import load_data
 
 
-def tsne_plot_pca10(data, label, learned_label=None, outdir='/results'):
+def tsne_plot_pca(data, label, learned_label=None, outdir='/results'):
     X = data
     y = label
     print(X.shape, y.shape)
@@ -23,7 +23,7 @@ def tsne_plot_pca10(data, label, learned_label=None, outdir='/results'):
     df['label'] = df['y'].apply(lambda i: str(i))
     print('Size of the dataframe: {}'.format(df.shape))
 
-    n_components = 15
+    n_components = 20
     pca = PCA(n_components=n_components)
     pca_result = pca.fit_transform(df)
     print('Cumulative explained variation for {} principal components: {}'.format(n_components,
@@ -92,7 +92,7 @@ def main():
     data = ihdp['x'][:, :, train_experiment]
     label = ihdp['yf'][:, train_experiment]
 
-    tsne_plot_pca10(data=data, label=label)
+    tsne_plot_pca(data=data, label=label)
 
 
 if __name__ == '__main__':
