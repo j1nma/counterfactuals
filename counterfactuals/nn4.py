@@ -18,7 +18,7 @@ from scipy.stats import sem
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
     predict_treated_and_controlled
-from examples.mxnet.tsne_plot import tsne_plot_pca10
+from examples.mxnet.tsne_plot import tsne_plot_pca
 
 
 def ff4_relu_architecture(hidden_size):
@@ -117,7 +117,7 @@ def run(args, outdir):
                                     mu1=np.concatenate([train['mu1'], valid['mu1']], axis=0))
         test_evaluator = Evaluator(test['t'], test['yf'], test['ycf'], test['mu0'], test['mu1'])
 
-        # Normalize yf
+        # Normalize yf # todo normalize option as others , or always default norm?
         yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
         train['yf'] = (train['yf'] - yf_m) / yf_std
         valid['yf'] = (valid['yf'] - yf_m) / yf_std
@@ -250,10 +250,10 @@ def run(args, outdir):
         print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
 
     # Plot last experiment TSNE visualization # TODO add to all?
-    tsne_plot_pca10(data=train['x'],
-                    label=train['yf'],
-                    learned_label=np.array(last_exp_outputs),
-                    outdir=outdir + args.architecture.lower())
+    tsne_plot_pca(data=train['x'],
+                  label=train['yf'],
+                  learned_label=np.array(last_exp_outputs),
+                  outdir=outdir + args.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
