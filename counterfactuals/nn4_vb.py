@@ -444,10 +444,10 @@ def run(args, outdir):
         print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
 
     # Plot last experiment TSNE visualization # TODO add to all?
-    tsne_plot_pca(data=train['x'],
-                  label=train['yf'],
-                  learned_label=np.array(last_exp_outputs),
-                  outdir=outdir + args.architecture.lower())
+    # tsne_plot_pca(data=train['x'],
+    #               label=train['yf'],
+    #               learned_label=np.array(last_exp_outputs),
+    #               outdir=outdir + args.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
