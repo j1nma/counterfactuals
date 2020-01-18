@@ -136,6 +136,23 @@ def test_net(net, test_data, ctx):
     return metric.get()
 
 
+def test_net_vb(net, test_data, layer_params, ctx): # TODO check cause i think it can be replaced by test_net
+    """ Test data on net and get metric (RMSE as default). """
+    metric = mx.metric.RMSE()
+    metric.reset()
+    for i, (data, label) in enumerate(test_data):
+        data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
+        label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+
+        for l_param, param in zip(layer_params, net.collect_params().values()):
+            param._data[0] = l_param
+
+        with autograd.predict_mode():
+            outputs = [net(x) for x in data]
+        metric.update(label, outputs)
+    return metric.get()
+
+
 def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
     """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
     metric = mx.metric.RMSE()
