@@ -62,9 +62,6 @@ def mx_run(outdir):
 
     log(logfile, 'Training with hyperparameters: alpha=%.2g, lambda=%.2g' % (FLAGS.p_alpha, FLAGS.weight_decay))
 
-    ''' Define model graph '''
-    log(logfile, 'Defining graph...\n')
-
     ''' Load datasets '''
     train_dataset = load_data(data_train, normalize=FLAGS.normalize_input)
 
