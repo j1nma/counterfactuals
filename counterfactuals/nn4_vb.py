@@ -153,7 +153,7 @@ class BBBLoss(gluon.loss.Loss):
         return mx.nd.sum(-1 * mx.nd.log(self.gaussian(y_obs, y_pred, sigma)))
 
     def hybrid_forward(self, F, output, label, params, mus, sigmas, num_batches, sample_weight=None):
-    # def hybrid_forward(self, F, output, label, params, lambdas, sigmas, num_batches, sample_weight=None):
+        # def hybrid_forward(self, F, output, label, params, lambdas, sigmas, num_batches, sample_weight=None):
         prior = None
         if self.log_prior == "gaussian":
             prior = self.gaussian_prior
@@ -176,7 +176,7 @@ class BBBLoss(gluon.loss.Loss):
 
         # return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) + self.neg_log_likelihood(label, output)
         kl_loss = (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum)
-        return kl_loss + self.neg_log_likelihood(label, output) # for gaussian
+        return kl_loss + self.neg_log_likelihood(label, output)  # for gaussian
         # return kl_loss  # for expo
 
 
@@ -512,7 +512,7 @@ def run(args, outdir):
     r_pehe_mean, r_pehe_std = np.mean(np.sqrt(train_scores[:, 2]), axis=0), sem(np.sqrt(train_scores[:, 2]), axis=0,
                                                                                 ddof=0)
     train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}, ' \
-                             'test root PEHE: {:.2f} ± {:.2f}' \
+                             'train root PEHE: {:.2f} ± {:.2f}' \
                              ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
