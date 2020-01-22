@@ -297,13 +297,13 @@ def run(outdir):
 
         log(logfile, '[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
                      ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
-                                                                                                train_experiments,
-                                                                                                train_score[0],
-                                                                                                train_score[1],
-                                                                                                train_score[2],
-                                                                                                test_score[0],
-                                                                                                test_score[1],
-                                                                                                test_score[2]))
+                                                                                             train_experiments,
+                                                                                             train_score[0],
+                                                                                             train_score[1],
+                                                                                             train_score[2],
+                                                                                             test_score[0],
+                                                                                             test_score[1],
+                                                                                             test_score[2]))
 
     ''' Save means and stds NDArray values for inference '''
     if FLAGS.normalize_input:
