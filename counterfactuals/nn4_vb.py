@@ -11,16 +11,18 @@ import warnings
 
 import mxnet as mx
 import numpy as np
-from matplotlib import pyplot as plt
 from mxnet import gluon, autograd, nd
 from mxnet.gluon import nn
 from scipy.stats import sem
 
 from counterfactuals.evaluation import Evaluator
-from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
-    predict_treated_and_controlled, predict_treated_and_controlled_vb
+from counterfactuals.utilities import load_data, split_data_in_train_valid_test, predict_treated_and_controlled, \
+    predict_treated_and_controlled_vb, test_net_vb, log
+
+
 # todo cutting condition on difference from last x epochs?
-from examples.mxnet.tsne_plot import tsne_plot_pca
+
+# todo citation code
 
 
 def ff4_relu_architecture(hidden_size):
@@ -53,6 +55,13 @@ def transform_gaussian_samples(mus, sigmas, epsilons):
     return samples
 
 
+def transform_exponential_samples(lambdas):
+    samples = []
+    for j in range(len(lambdas)):
+        samples.append(mx.random.exponential(scale=1 / lambdas[j]))
+    return samples
+
+
 def generate_weight_sample(layer_param_shapes, mus, rhos, ctx):
     ''' sample epsilons from standard normal '''
     epsilons = sample_epsilons(layer_param_shapes, ctx)
@@ -66,26 +75,48 @@ def generate_weight_sample(layer_param_shapes, mus, rhos, ctx):
     return layer_params, sigmas
 
 
+def generate_weight_sample_exp(raw_lambdas):
+    """ obtain a sample from q(w|theta) from exponential distribution """
+    layer_params = []
+    for raw_lambda in raw_lambdas:
+        layer_params.append(mx.nd.sample_exponential(lam=raw_lambda + 1))
+    return layer_params
+
+
 # Bayes by Backpropagation Loss
 # from https://gluon.mxnet.io/chapter18_variational-methods-and-uncertainty/bayes-by-backprop-gluon.html
 class BBBLoss(gluon.loss.Loss):
-    def __init__(self, ctx, log_prior="gaussian", sigma_p1=1.0, sigma_p2=0.1, pi=0.5, weight=None, batch_axis=0,
+    def __init__(self, ctx, log_prior, sigma_p1=1.0, sigma_p2=0.1, pi=0.5, lambda_p=25.0, weight=None, batch_axis=0,
                  **kwargs):
         super(BBBLoss, self).__init__(weight, batch_axis, **kwargs)
         self.log_prior = log_prior
         self.sigma_p1 = sigma_p1
         self.sigma_p2 = sigma_p2
         self.pi = pi
+        self.lambda_p = lambda_p
         self.ctx = ctx
 
     def log_gaussian(self, x, mu, sigma):
         """ https://bit.ly/2QqJbzL """
         return mx.nd.log(self.nd_gaussian(x, mu, sigma))
 
+    def log_exponential(self, x, lambda_p):
+        # return mx.nd.log(lambda_p * nd.exp(lambda_p * nd.negative(x)))
+        # return mx.nd.log(lambda_p) - lambda_p * x
+        if np.isinf(lambda_p.asnumpy()).any():
+            return mx.nd.log(lambda_p + 1) - lambda_p * x
+        else:
+            return mx.nd.log(lambda_p) - lambda_p * x
+
     def gaussian_prior(self, x):
         sigma_p = nd.array([1.0], ctx=self.ctx)
         # sigma_p = nd.array([self.sigma_p1], ctx=self.ctx)
         return nd.sum(self.log_gaussian(x, 0., sigma_p))
+
+    def exponential_prior(self, x):
+        sigma_p = nd.array([self.lambda_p], ctx=self.ctx)
+        # sigma_p = nd.array([self.sigma_p1], ctx=self.ctx)
+        return nd.sum(self.log_exponential(x, sigma_p))
 
     def nd_gaussian(self, x, mu, sigma):  # TODO probably should be normalized???
         '''  nd.sqrt instead of np.sqrt '''
@@ -118,27 +149,35 @@ class BBBLoss(gluon.loss.Loss):
         function (neg_log_likelihood) as loss function assuming a fixed standard deviation (noise).
         This corresponds to the likelihood cost, the last term in equation 3. '''
 
-        # sigma = nd.array([sigma])
-        # return mx.nd.sum(-1 * mx.nd.log(self.nd_gaussian(y_obs, y_pred, sigma)))
-
+        # return mx.nd.sum(-1 * mx.nd.log(y_pred * nd.exp(y_pred * nd.negative(y_obs))))
         return mx.nd.sum(-1 * mx.nd.log(self.gaussian(y_obs, y_pred, sigma)))
 
     def hybrid_forward(self, F, output, label, params, mus, sigmas, num_batches, sample_weight=None):
+    # def hybrid_forward(self, F, output, label, params, lambdas, sigmas, num_batches, sample_weight=None):
         prior = None
         if self.log_prior == "gaussian":
             prior = self.gaussian_prior
         elif self.log_prior == "scale_mixture":
             prior = self.scale_mixture_prior
+        elif self.log_prior == "exponential":
+            prior = self.exponential_prior
 
         # Calculate prior
         log_prior_sum = sum([nd.sum(prior(mx.nd.array(param))) for param in params])
+        # log_prior_sum = sum([nd.nansum(prior(mx.nd.array(param))) for param in params])
 
         # Calculate variational posterior
         log_var_posterior_sum = sum(
             [nd.sum(self.log_gaussian(mx.nd.array(params[i]), mx.nd.array(mus[i]), mx.nd.array(sigmas[i]))) for i in
              range(len(params))])
+        # log_var_posterior_sum = sum(
+        #     [nd.nansum(self.log_exponential(mx.nd.array(params[i]), mx.nd.array(lambdas[i]))) for i in
+        #      range(len(params))])
 
-        return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) + self.neg_log_likelihood(label, output)
+        # return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) + self.neg_log_likelihood(label, output)
+        kl_loss = (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum)
+        return kl_loss + self.neg_log_likelihood(label, output) # for gaussian
+        # return kl_loss  # for expo
 
 
 def evaluate_RMSE(data_iterator, net, layer_params, ctx):
@@ -159,6 +198,8 @@ def evaluate_RMSE(data_iterator, net, layer_params, ctx):
 
 
 def run(args, outdir):
+    """ Run training for NN4 architecture with Variational Bayes. """
+
     ''' Hyperparameters '''
     epochs = int(args.iterations)
     learning_rate = float(args.learning_rate)
@@ -169,6 +210,11 @@ def run(args, outdir):
     learning_rate_steps = int(args.learning_rate_steps)  # changes the learning rate for every n updates.
     epoch_output_iter = int(args.epoch_output_iter)
 
+    ''' Logging '''
+    logfile = outdir + 'log.txt'
+    f = open(logfile, 'w')
+    f.close()
+
     config = {  # TODO may need adjustments
         # "sigma_p1": 1.5,
         "sigma_p1": 1.75,  # og
@@ -176,12 +222,13 @@ def run(args, outdir):
         # "sigma_p2": 0.5, # og
         "sigma_p2": 0.5,
         "pi": 0.5,
+        "lambda_p": 24.5
     }
 
     ''' Set GPUs/CPUs '''
     num_gpus = mx.context.num_gpus()
     num_workers = int(args.num_workers)  # replace num_workers with the number of cores
-    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]  # todo change as cfr_net_train
     batch_size_per_unit = int(args.batch_size_per_unit)  # mini-batch size
     batch_size = batch_size_per_unit * max(num_gpus, 1)
 
@@ -196,12 +243,25 @@ def run(args, outdir):
     ''' Load datasets '''
     train_dataset = load_data('../' + args.data_dir + args.data_train)
 
+    log(logfile, 'Training data: ' + args.data_dir + args.data_train)
+    log(logfile, 'Valid data:     ' + args.data_dir + args.data_test)
+    log(logfile, 'Loaded data with shape [%d,%d]' % (train_dataset['n'], train_dataset['dim']))
+
+    # ''' Feature correlation '''
+    # import pandas as pd
+    # df = pd.DataFrame.from_records(train_dataset['x'][:, :, 20])
+    # df.insert(25, "t", train_dataset['t'][:, 20])
+    # corr = df.corr()
+    # import seaborn as sns
+    # sns.heatmap(corr, xticklabels=corr.columns, yticklabels=corr.columns, annot=True, fmt='.1f')
+
     ''' Instantiate net '''
     ''' Param. init. '''
-    # net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), ctx=ctx)
-    net.collect_params().initialize(ctx=ctx)
+    net.collect_params().initialize(mx.init.Xavier(), ctx=ctx)
     net.hybridize()
 
+    ''' Forward-propagate a single data set entry once to set up all network 
+    parameters (weights and biases) with the desired initializer specified above. '''
     x = train_dataset['x'][:, :, 0]
     t = np.reshape(train_dataset['t'][:, 0], (-1, 1))
     yf = train_dataset['yf'][:, 0]
@@ -217,39 +277,44 @@ def run(args, outdir):
         break
 
     weight_scale = .1
-    # weight_scale = np.sqrt(config['pi'] * config['sigma_p1'] ** 2 +
-    #                               config['pi'] * config['sigma_p2'] ** 2)
-
     rho_offset = -3
-    # rho_offset = 0.0
+    lambda_init = 25
 
     ''' Initialize variational parameters; mean and variance for each weight '''
     mus = []
     rhos = []
+    lambdas = []
 
     shapes = list(map(lambda x: x.shape, net.collect_params().values()))
 
     for shape in shapes:
         mu = gluon.Parameter('mu', shape=shape, init=mx.init.Normal(weight_scale))
         rho = gluon.Parameter('rho', shape=shape, init=mx.init.Constant(rho_offset))
+        # lmb = gluon.Parameter('lmb', shape=shape, init=mx.init.Constant(lambda_init))
         mu.initialize(ctx=ctx)
         rho.initialize(ctx=ctx)
+        # lmb.initialize(ctx=ctx)
         mus.append(mu)
         rhos.append(rho)
-
+        # lambdas.append(lmb)
     variational_params = mus + rhos
+    # variational_params = lambdas
 
     raw_mus = list(map(lambda x: x.data(ctx[0]), mus))
     raw_rhos = list(map(lambda x: x.data(ctx[0]), rhos))
+    raw_lambdas = list(map(lambda x: x.data(ctx[0]), lambdas))
 
     ''' Metric, Loss and Optimizer '''
     rmse_metric = mx.metric.RMSE()
+    l2_loss = gluon.loss.L2Loss()
+    # bbb_loss = BBBLoss(ctx[0], log_prior="exponential", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
+    #                    pi=config['pi'], lambda_p=config['lambda_p'])
     bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
                        pi=config['pi'])
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
-    # optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
+    # optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    optimizer = mx.optimizer.RMSProp(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
     # optimizer = mx.optimizer.Adam(learning_rate=learning_rate)
     trainer = gluon.Trainer(variational_params, optimizer=optimizer)
 
@@ -265,9 +330,6 @@ def run(args, outdir):
     ''' Train experiments means and stds '''
     means = np.array([])
     stds = np.array([])
-
-    ''' Outputs of last experiment for TSNE visualization '''
-    last_exp_outputs = []
 
     ''' Train '''
     for train_experiment in range(train_experiments):
@@ -290,7 +352,7 @@ def run(args, outdir):
                                     mu1=np.concatenate([train['mu1'], valid['mu1']], axis=0))
         test_evaluator = Evaluator(test['t'], test['yf'], test['ycf'], test['mu0'], test['mu1'])
 
-        ''' Normalize yf '''
+        ''' Normalize yf '''  # TODO check for normalize input?
         yf_m, yf_std = np.mean(train['yf'], axis=0), np.std(train['yf'], axis=0)
         train['yf'] = (train['yf'] - yf_m) / yf_std
         valid['yf'] = (valid['yf'] - yf_m) / yf_std
@@ -352,6 +414,7 @@ def run(args, outdir):
                 with autograd.record():
                     ''' Generate sample '''
                     layer_params, sigmas = generate_weight_sample(shapes, raw_mus, raw_rhos, ctx[0])
+                    # layer_params = generate_weight_sample_exp(raw_lambdas)
 
                     ''' Overwrite network parameters with sampled parameters '''
                     for sample, param in zip(layer_params, net.collect_params().values()):
@@ -360,13 +423,23 @@ def run(args, outdir):
                     ''' Forward-propagate the batch '''
                     outputs = net(batch_f_features)
 
-                    ''' Calculate the loss '''
-                    loss = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
+                    # if epoch == epochs:
+                    #     ''' Factual outcomes and batch_yf histograms '''
+                    #     import pandas as pd
+                    #     df = pd.DataFrame({'layer_params': layer_params[6][0].asnumpy().flatten()}, columns=['layer_params'])
+                    #     df = pd.DataFrame(
+                    #         {'outputs': outputs.asnumpy().flatten(), 'batch_yf': batch_yf.asnumpy().flatten()},
+                    #         columns=['outputs', 'batch_yf'])
+                    #     df.plot(kind='hist', alpha=0.5)
+                    #     df.plot.kde()
 
-                    ''' Save last epoch of last experiment outputs for TSNE vis. '''
-                    if train_experiment == range(train_experiments)[-1] \
-                            and epoch == range(epochs + 1)[-1]:
-                        last_exp_outputs.extend(outputs[0].reshape(-1, ).asnumpy())
+                    ''' Calculate the loss '''
+                    l2_loss_value = l2_loss(outputs, batch_yf)
+                    bbb_loss_value = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
+                    # bbb_loss_value = bbb_loss(outputs, batch_yf, layer_params, raw_lambdas, [], num_batch)
+                    loss = bbb_loss_value + l2_loss_value
+                    # loss = bbb_loss_value
+                    # loss = l2_loss_value
 
                     ''' Backpropagate for gradient calculation '''
                     loss.backward()
@@ -378,44 +451,52 @@ def run(args, outdir):
 
                 rmse_metric.update(batch_yf, outputs)
 
-            if epoch % epoch_output_iter == 0:
+            if epoch % epoch_output_iter == 0 or epoch == 1:
                 _, train_rmse_factual = rmse_metric.get()
                 train_loss /= num_batch
-                _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
+                _, valid_rmse_factual = test_net_vb(net, valid_factual_loader, layer_params, ctx)
 
-                _, train_RMSE = evaluate_RMSE(train_factual_loader, net, raw_mus, ctx)
-                _, test_RMSE = evaluate_RMSE(valid_factual_loader, net, raw_mus, ctx)
-                train_acc.append(np.asscalar(train_RMSE))
-                test_acc.append(np.asscalar(test_RMSE))
+                # _, train_RMSE = evaluate_RMSE(train_factual_loader, net, raw_mus, ctx)
+                # _, test_RMSE = evaluate_RMSE(valid_factual_loader, net, raw_mus, ctx)
+                # train_acc.append(np.asscalar(train_RMSE))
+                # test_acc.append(np.asscalar(test_RMSE))
                 # print("Epoch %s. Train-RMSE %s, Test-RMSE %s" %
                 #       (epoch, train_RMSE, test_RMSE))
 
-                print('[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
-                      '%.3E' % (
-                          epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
+                log(logfile,
+                    'l2-loss: %.3f, bbb-loss: %.3f' % (l2_loss_value[0].asscalar(), bbb_loss_value[0].asscalar()))
+
+                log(logfile,
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
+                    '%.3E' % (
+                        epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
         ''' Test model '''
         y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, raw_mus, ctx)
+        # y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, layer_params, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
 
         y_t0, y_t1 = predict_treated_and_controlled_vb(net, test_rmse_ite_loader, raw_mus, ctx)
+        # y_t0, y_t1 = predict_treated_and_controlled_vb(net, test_rmse_ite_loader, layer_params, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
 
-        print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
-                                                                                      train_experiments,
-                                                                                      train_score[0], train_score[1],
-                                                                                      train_score[2],
-                                                                                      test_score[0], test_score[1],
-                                                                                      test_score[2]))
-        plt.plot(train_acc)
-        plt.plot(test_acc)
+        log(logfile, '[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+                     ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
+                                                                                             train_experiments,
+                                                                                             train_score[0],
+                                                                                             train_score[1],
+                                                                                             train_score[2],
+                                                                                             test_score[0],
+                                                                                             test_score[1],
+                                                                                             test_score[2]))
+        # plt.plot(train_acc)
+        # plt.plot(test_acc)
 
     ''' Save means and stds NDArray values for inference '''
     mx.nd.save(outdir + args.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
@@ -424,30 +505,31 @@ def run(args, outdir):
     ''' Export trained model '''
     net.export(outdir + args.architecture.lower() + "-ihdp-predictions-" + str(train_experiments), epoch=epochs)
 
-    print('\n{} architecture total scores:'.format(args.architecture.upper()))
+    log(logfile, '\n{} architecture total scores:'.format(args.architecture.upper()))
 
+    ''' Train and test scores '''
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}' \
-                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(train_scores[:, 2]), axis=0), sem(np.sqrt(train_scores[:, 2]), axis=0,
+                                                                                ddof=0)
+    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}, ' \
+                             'test root PEHE: {:.2f} ± {:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}' \
-                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(test_scores[:, 2]), axis=0), sem(np.sqrt(test_scores[:, 2]), axis=0,
+                                                                               ddof=0)
+    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}, ' \
+                            'test root PEHE: {:.2f} ± {:.2f}' \
+                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
-    print(train_total_scores_str)
-    print(test_total_scores_str)
+    log(logfile, train_total_scores_str)
+    log(logfile, test_total_scores_str)
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
 
     with open(outdir + args.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
               encoding="utf8") as text_file:
         print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
-
-    # Plot last experiment TSNE visualization # TODO add to all?
-    # tsne_plot_pca(data=train['x'],
-    #               label=train['yf'],
-    #               learned_label=np.array(last_exp_outputs),
-    #               outdir=outdir + args.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),
