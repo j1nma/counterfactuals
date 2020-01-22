@@ -63,7 +63,7 @@ def run(args, outdir):
     ''' Feed Forward Neural Network Model (4 hidden layers) '''
     net = ff4_relu_architecture(hidden_size)
 
-    ''' Load datasets '''
+    ''' Load dataset '''
     train_dataset = load_data('../' + args.data_dir + args.data_train)
 
     ''' Instantiate net '''
@@ -142,7 +142,8 @@ def run(args, outdir):
         valid_factual_dataset = gluon.data.ArrayDataset(mx.nd.array(valid_factual_features), mx.nd.array(valid['yf']))
 
         ''' Test dataset '''
-        test_rmse_ite_dataset = gluon.data.ArrayDataset(mx.nd.array(test['x']))
+        test_rmse_ite_dataset = gluon.data.ArrayDataset(
+            mx.nd.array(test['x']))  # todo rename, rmse_ite has nothing to do
 
         ''' Train DataLoader '''
         train_factual_loader = gluon.data.DataLoader(train_factual_dataset, batch_size=batch_size, shuffle=True,
@@ -191,13 +192,14 @@ def run(args, outdir):
                 train_loss += sum([l.mean().asscalar() for l in loss]) / len(loss)
                 rmse_metric.update(batch_yf, outputs)
 
-            _, train_rmse_factual = rmse_metric.get()
-            train_loss /= num_batch
-            _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
 
             if epoch % epoch_output_iter == 0 or epoch == 1:
+                _, train_rmse_factual = rmse_metric.get()
+                train_loss /= num_batch
+                _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
+
                 log(logfile,
-                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f, Loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
                     '%.3E' % (
                         epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
 
