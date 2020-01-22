@@ -21,7 +21,7 @@ from examples.mxnet.tsne_plot import tsne_plot_pca
 FLAGS = 0
 
 
-def mx_run(outdir):
+def run(outdir):
     """ Runs a set of training and validation experiments and stores result in a directory. """
 
     ''' Set up paths and start log '''
@@ -299,7 +299,7 @@ def mx_run(outdir):
     r_pehe_mean, r_pehe_std = np.mean(np.sqrt(train_scores[:, 2]), axis=0), sem(np.sqrt(train_scores[:, 2]), axis=0,
                                                                                 ddof=0)
     train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}, ' \
-                             'test root PEHE: {:.2f} ± {:.2f}' \
+                             'train root PEHE: {:.2f} ± {:.2f}' \
                              ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
     means, stds = np.mean(valid_scores, axis=0), sem(valid_scores, axis=0, ddof=0)
@@ -339,7 +339,7 @@ def main():
     os.mkdir(outdir)
 
     try:
-        mx_run(outdir)
+        run(outdir)
     except Exception:
         with open(outdir + 'error.txt', 'w') as error_file:
             error_file.write(''.join(traceback.format_exception(*sys.exc_info())))
