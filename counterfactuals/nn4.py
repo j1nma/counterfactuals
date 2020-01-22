@@ -17,8 +17,7 @@ from scipy.stats import sem
 
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
-    predict_treated_and_controlled
-from examples.mxnet.tsne_plot import tsne_plot_pca
+    predict_treated_and_controlled, log
 
 
 def ff4_relu_architecture(hidden_size):
@@ -41,6 +40,11 @@ def run(args, outdir):
     learning_rate_factor = float(args.learning_rate_factor)
     learning_rate_steps = int(args.learning_rate_steps)  # changes the learning rate for every n updates.
     epoch_output_iter = int(args.epoch_output_iter)
+
+    ''' Logging '''
+    logfile = outdir + 'log.txt'
+    f = open(logfile, 'w')
+    f.close()
 
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
@@ -92,9 +96,6 @@ def run(args, outdir):
     # Train experiments means and stds
     means = np.array([])
     stds = np.array([])
-
-    # Outputs of last experiment for TSNE visualization
-    last_exp_outputs = []
 
     # Train
     for train_experiment in range(train_experiments):
@@ -178,11 +179,6 @@ def run(args, outdir):
                     outputs = [net(x) for x in batch_f_features]
                     loss = [l2_loss(yhat, y) for yhat, y in zip(outputs, batch_yf)]
 
-                    # Save last epoch of last experiment outputs for TSNE vis.
-                    if train_experiment == range(train_experiments)[-1] \
-                            and epoch == range(epochs + 1)[-1]:
-                        last_exp_outputs.extend(outputs[0].reshape(-1, ).asnumpy())
-
                 # Backward
                 for l in loss:
                     l.backward()
@@ -197,10 +193,11 @@ def run(args, outdir):
             train_loss /= num_batch
             _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
 
-            if epoch % epoch_output_iter == 0:
-                print('[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
-                      '%.3E' % (
-                          epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
+            if epoch % epoch_output_iter == 0 or epoch == 1:
+                log(logfile,
+                    '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
+                    '%.3E' % (
+                        epoch, epochs, train_rmse_factual, train_loss, valid_rmse_factual, trainer.learning_rate))
 
         train_durations[train_experiment, :] = time.time() - train_start
 
@@ -215,13 +212,15 @@ def run(args, outdir):
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
 
-        print('[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
-              ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
-                                                                                      train_experiments,
-                                                                                      train_score[0], train_score[1],
-                                                                                      train_score[2],
-                                                                                      test_score[0], test_score[1],
-                                                                                      test_score[2]))
+        log(logfile, '[Train Replication {}/{}]: train RMSE ITE: {:0.3f}, train ATE: {:0.3f}, train PEHE: {:0.3f},' \
+                     ' test RMSE ITE: {:0.3f}, test ATE: {:0.3f}, test PEHE: {:0.3f}'.format(train_experiment + 1,
+                                                                                             train_experiments,
+                                                                                             train_score[0],
+                                                                                             train_score[1],
+                                                                                             train_score[2],
+                                                                                             test_score[0],
+                                                                                             test_score[1],
+                                                                                             test_score[2]))
 
     # Save means and stds NDArray values for inference
     mx.nd.save(outdir + args.architecture.lower() + '_means_stds_ihdp_' + str(train_experiments) + '_.nd',
@@ -230,30 +229,31 @@ def run(args, outdir):
     # Export trained model
     net.export(outdir + args.architecture.lower() + "-ihdp-predictions-" + str(train_experiments), epoch=epochs)
 
-    print('\n{} architecture total scores:'.format(args.architecture.upper()))
+    log(logfile, '\n{} architecture total scores:'.format(args.architecture.upper()))
 
+    ''' Train and test scores '''
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}' \
-                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(train_scores[:, 2]), axis=0), sem(np.sqrt(train_scores[:, 2]), axis=0,
+                                                                                ddof=0)
+    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}, ' \
+                             'train root PEHE: {:.2f} ± {:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}' \
-                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(test_scores[:, 2]), axis=0), sem(np.sqrt(test_scores[:, 2]), axis=0,
+                                                                               ddof=0)
+    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}, ' \
+                            'test root PEHE: {:.2f} ± {:.2f}' \
+                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
-    print(train_total_scores_str)
-    print(test_total_scores_str)
+    log(logfile, train_total_scores_str)
+    log(logfile, test_total_scores_str)
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
 
     with open(outdir + args.architecture.lower() + "-total-scores-" + str(train_experiments), "w",
               encoding="utf8") as text_file:
         print(train_total_scores_str, "\n", test_total_scores_str, file=text_file)
-
-    # Plot last experiment TSNE visualization # TODO add to all?
-    tsne_plot_pca(data=train['x'],
-                  label=train['yf'],
-                  learned_label=np.array(last_exp_outputs),
-                  outdir=outdir + args.architecture.lower())
 
     return {"ite": "{:.2f} ± {:.2f}".format(means[0], stds[0]),
             "ate": "{:.2f} ± {:.2f}".format(means[1], stds[1]),

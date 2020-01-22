@@ -1,13 +1,13 @@
 -a
 cnn
 --iterations
-300
+100
 --learning_rate
 0.002
 --weight_decay
 0.0001
 --experiments
-10
+100
 --learning_rate_factor
 0.99
 --learning_rate_steps
