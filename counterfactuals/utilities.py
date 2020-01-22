@@ -136,6 +136,23 @@ def test_net(net, test_data, ctx):
     return metric.get()
 
 
+def test_net_vb(net, test_data, layer_params, ctx): # TODO check cause i think it can be replaced by test_net
+    """ Test data on net and get metric (RMSE as default). """
+    metric = mx.metric.RMSE()
+    metric.reset()
+    for i, (data, label) in enumerate(test_data):
+        data = gluon.utils.split_and_load(data, ctx_list=ctx, even_split=False)
+        label = gluon.utils.split_and_load(label, ctx_list=ctx, even_split=False)
+
+        for l_param, param in zip(layer_params, net.collect_params().values()):
+            param._data[0] = l_param
+
+        with autograd.predict_mode():
+            outputs = [net(x) for x in data]
+        metric.update(label, outputs)
+    return metric.get()
+
+
 def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
     """ Test data on t1_net and t0_net for CFR and get metric (RMSE as default). """
     metric = mx.metric.RMSE()
@@ -216,6 +233,30 @@ def predict_treated_and_controlled(net, test_rmse_ite_loader, ctx):
 
         t0_features = mx.nd.concat(x[0], mx.nd.zeros((len(x[0]), 1)))
         t1_features = mx.nd.concat(x[0], mx.nd.ones((len(x[0]), 1)))
+
+        with autograd.predict_mode():
+            t0_controlled_predicted = net(t0_features)
+            t1_treated_predicted = net(t1_features)
+
+        y_t0 = np.append(y_t0, t0_controlled_predicted)
+        y_t1 = np.append(y_t1, t1_treated_predicted)
+
+    return y_t0, y_t1
+
+
+def predict_treated_and_controlled_vb(net, test_rmse_ite_loader, layer_params, ctx):
+    """ Predict treated and controlled outcomes. """
+
+    y_t0 = np.array([])
+    y_t1 = np.array([])
+    for i, (x) in enumerate(test_rmse_ite_loader):
+        x = gluon.utils.split_and_load(x, ctx_list=ctx, even_split=False)
+
+        t0_features = mx.nd.concat(x[0], mx.nd.zeros((len(x[0]), 1)))
+        t1_features = mx.nd.concat(x[0], mx.nd.ones((len(x[0]), 1)))
+
+        for l_param, param in zip(layer_params, net.collect_params().values()):
+            param._data[0] = l_param
 
         with autograd.predict_mode():
             t0_controlled_predicted = net(t0_features)
@@ -418,7 +459,7 @@ def get_nn_args_parser():
         "-a",
         "--architecture",
         default='nn4',
-        choices=['nn4', 'cnn'],
+        choices=['nn4', 'cnn', 'nn4_vb'],
         help="Neural network architecture to use."
     )
     parser.add_argument(

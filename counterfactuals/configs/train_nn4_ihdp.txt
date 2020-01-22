@@ -1,9 +1,9 @@
 -a
 nn4
 --iterations
-500
+200
 --learning_rate
-0.001
+0.01
 --weight_decay
 0.0001
 --input_size
@@ -11,11 +11,11 @@ nn4
 --hidden_size
 25
 --experiments
-1
+100
 --learning_rate_factor
 0.96
 --learning_rate_steps
-2000
+3000
 --num_workers
 2
 --batch_size_per_unit
@@ -30,3 +30,5 @@ data/
 ihdp_npci_1-100.train.npz
 --data_test
 ihdp_npci_1-100.test.npz
+--epoch_output_iter
+25

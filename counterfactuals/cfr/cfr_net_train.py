@@ -16,6 +16,7 @@ from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import log, load_data, get_cfr_args_parser, \
     split_data_in_train_valid, hybrid_test_net_with_cfr, \
     hybrid_predict_treated_and_controlled_with_cfr, mx_safe_sqrt, save_config
+from examples.mxnet.tsne_plot import tsne_plot_pca
 
 FLAGS = 0
 
@@ -61,9 +62,6 @@ def mx_run(outdir):
 
     log(logfile, 'Training with hyperparameters: alpha=%.2g, lambda=%.2g' % (FLAGS.p_alpha, FLAGS.weight_decay))
 
-    ''' Define model graph '''
-    log(logfile, 'Defining graph...\n')
-
     ''' Load datasets '''
     train_dataset = load_data(data_train, normalize=FLAGS.normalize_input)
 
@@ -86,7 +84,8 @@ def mx_run(outdir):
                                 square=True, backpropT=FLAGS.wass_bpg)  # Change too at hybrid_test_net_with_cfr
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
-    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
+    optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
+    # optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler, wd=wd)
     trainer = gluon.Trainer(net.collect_params(), optimizer=optimizer)
 
     ''' Initialize train score results '''
@@ -114,6 +113,11 @@ def mx_run(outdir):
         mu1 = train_dataset['mu1'][:, train_experiment]
 
         train, valid = split_data_in_train_valid(x, t, yf, ycf, mu0, mu1, validation_size=FLAGS.val_size)
+
+        ''' Plot first experiment original TSNE visualization '''
+        if train_experiment == 0:
+            ''' Learned representations of first experiment for TSNE visualization '''
+            first_exp_reps = []
 
         ''' Train, Valid Evaluators, with labels not normalized '''
         train_evaluator = Evaluator(train['t'], train['yf'], train['ycf'], train['mu0'], train['mu1'])
@@ -215,6 +219,10 @@ def mx_run(outdir):
                     if FLAGS.p_alpha > 0:
                         tot_error = tot_error + imb_error
 
+                    ''' Save last epoch of first experiment reps for TSNE vis. '''
+                    if train_experiment == 0 and epoch == range(epochs + 1)[-1]:
+                        first_exp_reps.extend(rep_o)
+
                 ''' Backward '''
                 tot_error.backward()
 
@@ -238,6 +246,13 @@ def mx_run(outdir):
                              '%.3E | ObjLoss: %.3f | ImbErr: %.3f | Valid-rmse-factual: %.3f' % (
                         epoch, epochs, train_rmse_factual, train_loss, trainer.learning_rate,
                         obj_loss, imb_err, valid_rmse_factual))
+
+        ''' Plot first experiment learned TSNE visualization '''
+        if train_experiment == 0:
+            tsne_plot_pca(data=train['x'],
+                          label=train['t'],
+                          learned_representation=np.asarray([ind.asnumpy() for ind in first_exp_reps]),
+                          outdir=outdir + FLAGS.architecture.lower())
 
         train_durations[train_experiment, :] = time.time() - train_start
 
@@ -279,13 +294,20 @@ def mx_run(outdir):
 
     log(logfile, '\n{} architecture total scores:'.format(FLAGS.architecture.upper()))
 
+    ''' Train and test scores '''
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}' \
-                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(train_scores[:, 2]), axis=0), sem(np.sqrt(train_scores[:, 2]), axis=0,
+                                                                                ddof=0)
+    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}, ' \
+                             'test root PEHE: {:.2f} ± {:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
     means, stds = np.mean(valid_scores, axis=0), sem(valid_scores, axis=0, ddof=0)
-    valid_total_scores_str = 'valid RMSE ITE: {:.2f} ± {:.2f}, valid ATE: {:.2f} ± {:.2f}, valid PEHE: {:.2f} ± {:.2f}' \
-        .format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(valid_scores[:, 2]), axis=0), sem(np.sqrt(valid_scores[:, 2]), axis=0,
+                                                                                ddof=0)
+    valid_total_scores_str = 'valid RMSE ITE: {:.2f} ± {:.2f}, valid ATE: {:.2f} ± {:.2f}, valid PEHE: {:.2f} ± {:.2f}, ' \
+                             'valid root PEHE: {:.2f} ± {:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
     log(logfile, train_total_scores_str)
     log(logfile, valid_total_scores_str)

@@ -10,7 +10,7 @@ from scipy.stats import sem
 
 from counterfactuals.evaluation import Evaluator
 from counterfactuals.utilities import load_data, split_data_in_train_valid_test, test_net, \
-    predict_treated_and_controlled, predict_treated_and_controlled_with_cnn
+    predict_treated_and_controlled, predict_treated_and_controlled_with_cnn, log
 
 
 def cnn_architecture(kernel_size=3, strides=2, pool_size=2):
@@ -39,6 +39,11 @@ def run(args, outdir):
     learning_rate_factor = float(args.learning_rate_factor)
     learning_rate_steps = int(args.learning_rate_steps)  # changes the learning rate for every n updates.
 
+    ''' Logging '''
+    logfile = outdir + 'log.txt'
+    f = open(logfile, 'w')
+    f.close()
+
     # Set GPUs/CPUs
     num_gpus = mx.context.num_gpus()
     num_workers = int(args.num_workers)  # replace num_workers with the number of cores
@@ -62,10 +67,10 @@ def run(args, outdir):
     net.hybridize()  # hybridize for better performance
 
     # Plot net graph
-    x_sym = mx.sym.var('data')
-    sym = net(x_sym)
-    mx.viz.plot_network(sym, title=args.architecture.lower() + "_plot").view(
-        filename=outdir + args.architecture.lower() + "_plot")
+    # x_sym = mx.sym.var('data')
+    # sym = net(x_sym)
+    # mx.viz.plot_network(sym, title=args.architecture.lower() + "_plot").view(
+    #     filename=outdir + args.architecture.lower() + "_plot")
 
     # Metric, Loss and Optimizer
     rmse_metric = mx.metric.RMSE()
@@ -194,7 +199,7 @@ def run(args, outdir):
             train_loss /= num_batch
             _, valid_rmse_factual = test_net(net, valid_factual_loader, ctx)
 
-            if epoch % 100 == 0:
+            if epoch % 100 == 0 or epoch == 1:
                 print(
                     '[Epoch %d/%d] Train-rmse-factual: %.3f, loss: %.3f | Valid-rmse-factual: %.3f | learning-rate: '
                     '%.3E' %
@@ -238,16 +243,23 @@ def run(args, outdir):
 
     print('\n{} architecture total scores:'.format(args.architecture.upper()))
 
+    ''' Train and test scores '''
     means, stds = np.mean(train_scores, axis=0), sem(train_scores, axis=0, ddof=0)
-    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}' \
-                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(train_scores[:, 2]), axis=0), sem(np.sqrt(train_scores[:, 2]), axis=0,
+                                                                                ddof=0)
+    train_total_scores_str = 'train RMSE ITE: {:.2f} ± {:.2f}, train ATE: {:.2f} ± {:.2f}, train PEHE: {:.2f} ± {:.2f}, ' \
+                             'test root PEHE: {:.2f} ± {:.2f}' \
+                             ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
-    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}' \
-                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2])
+    r_pehe_mean, r_pehe_std = np.mean(np.sqrt(test_scores[:, 2]), axis=0), sem(np.sqrt(test_scores[:, 2]), axis=0,
+                                                                               ddof=0)
+    test_total_scores_str = 'test RMSE ITE: {:.2f} ± {:.2f}, test ATE: {:.2f} ± {:.2f}, test PEHE: {:.2f} ± {:.2f}, ' \
+                            'test root PEHE: {:.2f} ± {:.2f}' \
+                            ''.format(means[0], stds[0], means[1], stds[1], means[2], stds[2], r_pehe_mean, r_pehe_std)
 
-    print(train_total_scores_str)
-    print(test_total_scores_str)
+    log(logfile, train_total_scores_str)
+    log(logfile, test_total_scores_str)
 
     mean_duration = float("{0:.2f}".format(np.mean(train_durations, axis=0)[0]))
 
@@ -319,11 +331,12 @@ def run_test(args):
         test_scores[test_experiment, :] = test_score
 
         print(
-            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(test_experiment + 1,
-                                                                                               test_experiments,
-                                                                                               test_score[0],
-                                                                                               test_score[1],
-                                                                                               test_score[2]))
+            '[Test Replication {}/{}]:\tRMSE ITE: {:0.3f},\t\t ATE: {:0.3f},\t\t PEHE: {:0.3f}'.format(
+                test_experiment + 1,
+                test_experiments,
+                test_score[0],
+                test_score[1],
+                test_score[2]))
 
     means, stds = np.mean(test_scores, axis=0), sem(test_scores, axis=0, ddof=0)
     print('test RMSE ITE: {:.3f} ± {:.3f}, test ATE: {:.3f} ± {:.3f}, test PEHE: {:.3f} ± {:.3f}' \
