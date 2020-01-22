@@ -165,10 +165,12 @@ def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
     obj_loss = 0
     imb_err = 0
 
-    for i, (x, t, batch_yf) in enumerate(test_data_loader):
-        x = x.as_in_context(ctx)
-        t = t.as_in_context(ctx)
+    for i, (batch_f_features, batch_yf) in enumerate(test_data_loader):
+        batch_f_features = batch_f_features.as_in_context(ctx)
         batch_yf = batch_yf.as_in_context(ctx)
+
+        x = batch_f_features[:, :-1]
+        t = batch_f_features[:, -1]
 
         # Get treatment and control indices
         t1_idx = np.where(x[:, -1] == 1)[0]
@@ -292,7 +294,7 @@ def hybrid_predict_treated_and_controlled_with_cfr(net, data_loader, ctx):
     y_t1 = np.array([])
     y_t0 = np.array([])
 
-    for i, (x, _, _) in enumerate(data_loader):
+    for i, (x) in enumerate(data_loader):
         x = x.as_in_context(ctx)
 
         with autograd.predict_mode():
