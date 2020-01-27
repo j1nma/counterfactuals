@@ -1,4 +1,4 @@
-# Causal Inference as a Preprocessing Step for Neural Network Libraries
+# Causal Inference Analysis with Neural Networks
 
 ## Running
 
