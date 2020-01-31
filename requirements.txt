@@ -5,3 +5,4 @@ scipy
 mxnet
 numpy
 graphviz
+seaborn
