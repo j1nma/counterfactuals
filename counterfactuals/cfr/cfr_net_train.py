@@ -1,6 +1,5 @@
 import datetime
 import os
-import pathlib
 import random
 import sys
 import time
@@ -356,9 +355,8 @@ def main():
     FLAGS.architecture = "cfr"
 
     ''' Create outdir if inexistent '''
-    outdir_path = pathlib.Path(FLAGS.outdir)
-    if not outdir_path.is_dir():
-        os.mkdir(FLAGS.outdir)
+    if not os.path.exists(FLAGS.outdir):
+        os.makedirs(FLAGS.outdir)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     outdir = FLAGS.outdir + '/results_' + timestamp + '/'
