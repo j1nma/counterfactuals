@@ -136,7 +136,7 @@ def test_net(net, test_data, ctx):
     return metric.get()
 
 
-def test_net_vb(net, test_data, layer_params, ctx): # TODO check cause i think it can be replaced by test_net
+def test_net_vb(net, test_data, layer_params, ctx):  # TODO check cause i think it can be replaced by test_net
     """ Test data on net and get metric (RMSE as default). """
     metric = mx.metric.RMSE()
     metric.reset()
@@ -175,6 +175,10 @@ def hybrid_test_net_with_cfr(net, test_data_loader, ctx, FLAGS, p_treated):
         # Get treatment and control indices
         t1_idx = np.where(x[:, -1] == 1)[0]
         t0_idx = np.where(x[:, -1] == 0)[0]
+
+        if t1_idx.shape[0] == 0:
+            print('Encountered no treatment samples at batch ' + str(i) + '.')
+            continue
 
         # Compute sample reweighing
         if FLAGS.reweight_sample:
