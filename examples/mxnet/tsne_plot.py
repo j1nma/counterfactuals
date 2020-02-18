@@ -29,12 +29,13 @@ def tsne_plot_pca(data, label, learned_representation=None, outdir='/results'):
     pca_result = pca.fit_transform(df)
     print('Cumulative explained variation for {} principal components: {}'.format(n_components,
                                                                                   np.sum(
-                                                                                      pca.explained_variance_ratio_)))
+                                                                                      pca.explained_variance_ratio_).round(
+                                                                                      decimals=3)))
 
     time_start = time.time()
     tsne = TSNE(n_components=2, verbose=0, perplexity=40, n_iter=1000)
     tsne_pca_results = tsne.fit_transform(pca_result)
-    print('t-SNE done! Time elapsed: {} seconds'.format(time.time() - time_start))
+    print('t-SNE done! Time elapsed: {0:.3f} seconds'.format(time.time() - time_start))
 
     df['tsne-pca-one'] = tsne_pca_results[:, 0]
     df['tsne-pca-two'] = tsne_pca_results[:, 1]
@@ -67,12 +68,13 @@ def tsne_plot_pca(data, label, learned_representation=None, outdir='/results'):
         pca_result_l = pca.fit_transform(df_l)
         print('Cumulative explained variation for {} principal components: {}'.format(n_components,
                                                                                       np.sum(
-                                                                                          pca.explained_variance_ratio_)))
+                                                                                          pca.explained_variance_ratio_).round(
+                                                                                          decimals=3)))
 
         time_start = time.time()
         tsne = TSNE(n_components=2, verbose=0, perplexity=40, n_iter=1000)
         tsne_pca_results_l = tsne.fit_transform(pca_result_l)
-        print('t-SNE done! Time elapsed: {} seconds'.format(time.time() - time_start))
+        print('t-SNE done! Time elapsed: {0:.3f} seconds'.format(time.time() - time_start))
 
         df_l['tsne-pca-one-l'] = tsne_pca_results_l[:, 0]
         df_l['tsne-pca-two-l'] = tsne_pca_results_l[:, 1]
