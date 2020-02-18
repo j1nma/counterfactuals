@@ -95,7 +95,8 @@ def run(cfg_file, num_runs):
         print('\n'.join(['%s: %s' % (str(k), str(v)) for k, v in cfg.items() if len(configs[k]) > 1]))
 
         flags = ' '.join('--%s %s' % (k, str(v)) for k, v in cfg.items())
-        call('python3 cfr/cfr_net_train.py %s' % flags, shell=True)
+        # call('python3 cfr/cfr_net_train.py %s' % flags, shell=True)  # PyCharm run
+        call('python3 counterfactuals/cfr/cfr_net_train.py %s' % flags, shell=True) # Terminal run
 
 
 if __name__ == "__main__":
