@@ -64,7 +64,8 @@ def run(args, outdir):
     net = ff4_relu_architecture(hidden_size)
 
     ''' Load dataset '''
-    train_dataset = load_data('../' + args.data_dir + args.data_train)
+    # train_dataset = load_data('../' + args.data_dir + args.data_train) # PyCharm run
+    train_dataset = load_data(args.data_dir + args.data_train) # Terminal run
 
     ''' Instantiate net '''
     net.initialize(init=init.Xavier(), ctx=ctx)

@@ -30,7 +30,7 @@ def cnn_architecture(kernel_size=3, strides=2, pool_size=2):
     return net
 
 
-def run(args, outdir, kernel_size, strides, pool_size):
+def run(args, outdir, kernel_size=3, strides=2, pool_size=2):
     """ Run training for CNN architecture. """
 
     ''' Hyperparameters '''

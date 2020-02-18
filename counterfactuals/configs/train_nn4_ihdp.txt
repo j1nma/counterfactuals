@@ -23,7 +23,7 @@ nn4
 --seed
 1
 --outdir
-results/ihdp/nn4/
+counterfactuals/results/ihdp/nn4/
 --data_dir
 data/
 --data_train

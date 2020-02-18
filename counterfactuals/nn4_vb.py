@@ -241,7 +241,8 @@ def run(args, outdir):
     net = ff4_relu_architecture(hidden_size)
 
     ''' Load datasets '''
-    train_dataset = load_data('../' + args.data_dir + args.data_train)
+    # train_dataset = load_data('../' + args.data_dir + args.data_train) # PyCharm run
+    train_dataset = load_data(args.data_dir + args.data_train) # Terminal run
 
     log(logfile, 'Training data: ' + args.data_dir + args.data_train)
     log(logfile, 'Valid data:     ' + args.data_dir + args.data_test)

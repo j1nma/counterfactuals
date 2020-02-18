@@ -19,7 +19,7 @@ cnn
 --seed
 1
 --outdir
-results/ihdp/cnn/
+counterfactuals/results/ihdp/cnn/
 --data_dir
 data/
 --data_train
