@@ -1,6 +1,7 @@
 import datetime
 import os
 import sys
+import traceback
 from pathlib import Path
 
 import numpy as np
@@ -72,6 +73,7 @@ def gridsearch(config_file):
                 result = cnn.run(args, combination_outdir, combination['kernel_size'], combination['strides'],
                                  combination['pool_size'])
             except:
+                traceback.print_exc()
                 continue
         else:
             return "Architecture not found."
