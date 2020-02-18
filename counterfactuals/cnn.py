@@ -30,7 +30,7 @@ def cnn_architecture(kernel_size=3, strides=2, pool_size=2):
     return net
 
 
-def run(args, outdir):
+def run(args, outdir, kernel_size, strides, pool_size):
     """ Run training for CNN architecture. """
 
     ''' Hyperparameters '''
@@ -59,10 +59,11 @@ def run(args, outdir):
     np.random.seed(int(args.seed))
 
     ''' Convolution Neural Network Model '''
-    net = cnn_architecture()
+    net = cnn_architecture(kernel_size, strides, pool_size)
 
     ''' Load datasets '''
-    train_dataset = load_data('../' + args.data_dir + args.data_train)
+    # train_dataset = load_data('../' + args.data_dir + args.data_train) # PyCharm run
+    train_dataset = load_data(args.data_dir + args.data_train) # Terminal run
 
     ''' Instantiate net '''
     net.initialize(init=init.Xavier(), ctx=ctx)
