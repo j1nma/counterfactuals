@@ -44,7 +44,7 @@ def gridsearch(config_file):
     outdir = outdir + architecture + '/'
     outdir_path = Path(outdir)
     if not outdir_path.is_dir():
-        os.mkdir(outdir)
+        os.makedirs(outdir)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     outdir = outdir + timestamp + '/'
     os.mkdir(outdir)
