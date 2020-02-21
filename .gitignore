@@ -112,3 +112,4 @@ dmypy.json
 /data/ihdp_npci_1-1000.test.npz
 /data/ihdp_npci_1-1000.train.npz
 /counterfactuals/results
+/.idea/

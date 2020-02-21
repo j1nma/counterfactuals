@@ -147,14 +147,16 @@ class WassersteinLoss(Loss):
         Mt = mx.nd.Concat(Mt, col, dim=1)
 
         ''' Compute marginal vectors '''
+        # j1nma edit, mx -> np -> mx, not encouraged
         a = mx.nd.Concat(
-            self.p * mx.nd.ones_like(mx.nd.slice_axis(Xt, axis=1, begin=0, end=1)) / nt,
-            (1 - self.p) * mx.nd.ones((1, 1)),
+            mx.nd.array(self.p * mx.nd.ones_like(mx.nd.slice_axis(Xt, axis=1, begin=0, end=1)).asnumpy() / nt),
+            mx.nd.array((1 - self.p) * mx.nd.ones((1, 1)).asnumpy()),
             dim=0)
 
+        # j1nma edit, mx -> np -> mx, not encouraged
         b = mx.nd.Concat(
-            (1 - self.p) * mx.nd.ones_like(mx.nd.slice_axis(Xc, axis=1, begin=0, end=1)) / nc,
-            self.p * mx.nd.ones((1, 1)),
+            mx.nd.array((1 - self.p) * mx.nd.ones_like(mx.nd.slice_axis(Xc, axis=1, begin=0, end=1)).asnumpy() / nc),
+            mx.nd.array(self.p * mx.nd.ones((1, 1)).asnumpy()),
             dim=0)
 
         ''' Compute kernel matrix'''

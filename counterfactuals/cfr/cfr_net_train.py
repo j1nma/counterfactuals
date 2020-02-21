@@ -1,5 +1,6 @@
 import datetime
 import os
+import pathlib
 import random
 import sys
 import time
@@ -200,8 +201,10 @@ def run(outdir):
 
                 ''' Compute sample reweighing '''
                 if FLAGS.reweight_sample:
-                    w_t = t / (2 * treatment_probability)
-                    w_c = (1 - t) / (2 * 1 - treatment_probability)
+                    # w_t = t / (2 * treatment_probability) # macOS
+                    w_t = mx.nd.array(t.asnumpy() / (2*treatment_probability)) # Linux
+                    # w_c = (1 - t) / (2 * 1 - treatment_probability) # macOS
+                    w_c = mx.nd.array((1 - t.asnumpy()) / (2 * 1 - treatment_probability))  # Linux
                     sample_weight = w_t + w_c
                 else:
                     sample_weight = 1.0
