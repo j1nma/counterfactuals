@@ -19,6 +19,8 @@ Adapting a problem by enforcing a neural network to learn balanced representatio
 
 Clone the repository and under the root folder, run:
 
+Note: on Linux, checkout from branch "ubuntu".
+
 *Python 2*
 ```shell script
 pip install -r requirements.txt
