@@ -1,9 +1,9 @@
 -a
 nn4_vb
 --iterations
-100
+25
 --learning_rate
-0.01
+0.0001
 --weight_decay
 0.0001
 --input_size
@@ -25,7 +25,7 @@ nn4_vb
 --outdir
 results/ihdp/nn4_vb/
 --data_dir
-data/
+../data/
 --data_train
 ihdp_npci_1-100.train.npz
 --data_test

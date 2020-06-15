@@ -1,4 +1,4 @@
-# Causal Inference Analysis with Neural Networks
+# Analysis of Counterfactuals with Statistical Inference System
 Master Thesis for the Double Degree Master Program “Software Engineering” at FH Technikum Wien, Austria.
 
 ## About

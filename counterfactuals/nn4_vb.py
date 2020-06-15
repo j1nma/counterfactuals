@@ -40,6 +40,11 @@ def sample_epsilons(param_shapes, ctx):
     return epsilons
 
 
+def sample_exponential(param_shapes, ctx):
+    exponentials = [nd.random_exponential(shape=shape, lam=1.0, ctx=ctx) for shape in param_shapes]
+    return exponentials
+
+
 def softplus(x):
     return nd.log(1. + nd.exp(x))
 
@@ -55,10 +60,10 @@ def transform_gaussian_samples(mus, sigmas, epsilons):
     return samples
 
 
-def transform_exponential_samples(lambdas):
+def transform_exponential_samples(lambdas, exponentials):
     samples = []
     for j in range(len(lambdas)):
-        samples.append(mx.random.exponential(scale=1 / lambdas[j]))
+        samples.append(exponentials[j] * (1 / (lambdas[j])))
     return samples
 
 
@@ -75,11 +80,13 @@ def generate_weight_sample(layer_param_shapes, mus, rhos, ctx):
     return layer_params, sigmas
 
 
-def generate_weight_sample_exp(raw_lambdas):
-    """ obtain a sample from q(w|theta) from exponential distribution """
-    layer_params = []
-    for raw_lambda in raw_lambdas:
-        layer_params.append(mx.nd.sample_exponential(lam=raw_lambda + 1))
+def generate_weight_sample_exp(layer_param_shapes, raw_lambdas, ctx):
+    ''' sample exponential rv. with rate 1 '''
+    exponentials = sample_exponential(layer_param_shapes, ctx)
+
+    ''' obtain a sample from q(w|theta) from exponential distribution '''
+    layer_params = transform_exponential_samples(raw_lambdas, exponentials)
+
     return layer_params
 
 
@@ -152,8 +159,8 @@ class BBBLoss(gluon.loss.Loss):
         # return mx.nd.sum(-1 * mx.nd.log(y_pred * nd.exp(y_pred * nd.negative(y_obs))))
         return mx.nd.sum(-1 * mx.nd.log(self.gaussian(y_obs, y_pred, sigma)))
 
-    def hybrid_forward(self, F, output, label, params, mus, sigmas, num_batches, sample_weight=None):
-        # def hybrid_forward(self, F, output, label, params, lambdas, sigmas, num_batches, sample_weight=None):
+    # def hybrid_forward(self, F, output, label, params, mus, sigmas, num_batches, sample_weight=None):
+    def hybrid_forward(self, F, output, label, params, lambdas, sigmas, num_batches, sample_weight=None):
         prior = None
         if self.log_prior == "gaussian":
             prior = self.gaussian_prior
@@ -167,17 +174,17 @@ class BBBLoss(gluon.loss.Loss):
         # log_prior_sum = sum([nd.nansum(prior(mx.nd.array(param))) for param in params])
 
         # Calculate variational posterior
-        log_var_posterior_sum = sum(
-            [nd.sum(self.log_gaussian(mx.nd.array(params[i]), mx.nd.array(mus[i]), mx.nd.array(sigmas[i]))) for i in
-             range(len(params))])
         # log_var_posterior_sum = sum(
-        #     [nd.nansum(self.log_exponential(mx.nd.array(params[i]), mx.nd.array(lambdas[i]))) for i in
+        #     [nd.sum(self.log_gaussian(mx.nd.array(params[i]), mx.nd.array(mus[i]), mx.nd.array(sigmas[i]))) for i in
         #      range(len(params))])
+        log_var_posterior_sum = sum(
+            [nd.nansum(self.log_exponential(mx.nd.array(params[i]), mx.nd.array(lambdas[i]))) for i in
+             range(len(params))])
 
         # return (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum) + self.neg_log_likelihood(label, output)
         kl_loss = (1.0 / num_batches) * (log_var_posterior_sum - log_prior_sum)
-        return kl_loss + self.neg_log_likelihood(label, output)  # for gaussian
-        # return kl_loss  # for expo
+        # return kl_loss + self.neg_log_likelihood(label, output)  # for gaussian
+        return kl_loss  # for expo
 
 
 def evaluate_RMSE(data_iterator, net, layer_params, ctx):
@@ -289,29 +296,29 @@ def run(args, outdir):
     shapes = list(map(lambda x: x.shape, net.collect_params().values()))
 
     for shape in shapes:
-        mu = gluon.Parameter('mu', shape=shape, init=mx.init.Normal(weight_scale))
-        rho = gluon.Parameter('rho', shape=shape, init=mx.init.Constant(rho_offset))
-        # lmb = gluon.Parameter('lmb', shape=shape, init=mx.init.Constant(lambda_init))
-        mu.initialize(ctx=ctx)
-        rho.initialize(ctx=ctx)
-        # lmb.initialize(ctx=ctx)
-        mus.append(mu)
-        rhos.append(rho)
-        # lambdas.append(lmb)
-    variational_params = mus + rhos
-    # variational_params = lambdas
+        # mu = gluon.Parameter('mu', shape=shape, init=mx.init.Normal(weight_scale))
+        # rho = gluon.Parameter('rho', shape=shape, init=mx.init.Constant(rho_offset))
+        lmb = gluon.Parameter('lmb', shape=shape, init=mx.init.Constant(lambda_init))
+        # mu.initialize(ctx=ctx)
+        # rho.initialize(ctx=ctx)
+        lmb.initialize(ctx=ctx)
+        # mus.append(mu)
+        # rhos.append(rho)
+        lambdas.append(lmb)
+    # variational_params = mus + rhos
+    variational_params = lambdas
 
-    raw_mus = list(map(lambda x: x.data(ctx[0]), mus))
-    raw_rhos = list(map(lambda x: x.data(ctx[0]), rhos))
+    # raw_mus = list(map(lambda x: x.data(ctx[0]), mus))
+    # raw_rhos = list(map(lambda x: x.data(ctx[0]), rhos))
     raw_lambdas = list(map(lambda x: x.data(ctx[0]), lambdas))
 
     ''' Metric, Loss and Optimizer '''
     rmse_metric = mx.metric.RMSE()
     l2_loss = gluon.loss.L2Loss()
-    # bbb_loss = BBBLoss(ctx[0], log_prior="exponential", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
-    #                    pi=config['pi'], lambda_p=config['lambda_p'])
-    bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
-                       pi=config['pi'])
+    bbb_loss = BBBLoss(ctx[0], log_prior="exponential", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
+                       pi=config['pi'], lambda_p=config['lambda_p'])
+    # bbb_loss = BBBLoss(ctx[0], log_prior="scale_mixture", sigma_p1=config['sigma_p1'], sigma_p2=config['sigma_p2'],
+    #                    pi=config['pi'])
     scheduler = mx.lr_scheduler.FactorScheduler(step=learning_rate_steps, factor=learning_rate_factor,
                                                 base_lr=learning_rate)
     # optimizer = mx.optimizer.Adam(learning_rate=learning_rate, lr_scheduler=scheduler)
@@ -414,8 +421,8 @@ def run(args, outdir):
                 ''' Forward '''
                 with autograd.record():
                     ''' Generate sample '''
-                    layer_params, sigmas = generate_weight_sample(shapes, raw_mus, raw_rhos, ctx[0])
-                    # layer_params = generate_weight_sample_exp(raw_lambdas)
+                    # layer_params, sigmas = generate_weight_sample(shapes, raw_mus, raw_rhos, ctx[0])
+                    layer_params = generate_weight_sample_exp(shapes, raw_lambdas, ctx[0])
 
                     ''' Overwrite network parameters with sampled parameters '''
                     for sample, param in zip(layer_params, net.collect_params().values()):
@@ -436,8 +443,8 @@ def run(args, outdir):
 
                     ''' Calculate the loss '''
                     l2_loss_value = l2_loss(outputs, batch_yf)
-                    bbb_loss_value = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
-                    # bbb_loss_value = bbb_loss(outputs, batch_yf, layer_params, raw_lambdas, [], num_batch)
+                    # bbb_loss_value = bbb_loss(outputs, batch_yf, layer_params, raw_mus, sigmas, num_batch)
+                    bbb_loss_value = bbb_loss(outputs, batch_yf, layer_params, raw_lambdas, [], num_batch)
                     loss = bbb_loss_value + l2_loss_value
                     # loss = bbb_loss_value
                     # loss = l2_loss_value
@@ -475,14 +482,14 @@ def run(args, outdir):
         train_durations[train_experiment, :] = time.time() - train_start
 
         ''' Test model '''
-        y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, raw_mus, ctx)
-        # y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, layer_params, ctx)
+        # y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, raw_mus, ctx)
+        y_t0, y_t1 = predict_treated_and_controlled_vb(net, train_rmse_ite_loader, layer_params, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         train_score = train_evaluator.get_metrics(y_t1, y_t0)
         train_scores[train_experiment, :] = train_score
 
-        y_t0, y_t1 = predict_treated_and_controlled_vb(net, test_rmse_ite_loader, raw_mus, ctx)
-        # y_t0, y_t1 = predict_treated_and_controlled_vb(net, test_rmse_ite_loader, layer_params, ctx)
+        # y_t0, y_t1 = predict_treated_and_controlled_vb(net, test_rmse_ite_loader, raw_mus, ctx)
+        y_t0, y_t1 = predict_treated_and_controlled_vb(net, test_rmse_ite_loader, layer_params, ctx)
         y_t0, y_t1 = y_t0 * yf_std + yf_m, y_t1 * yf_std + yf_m
         test_score = test_evaluator.get_metrics(y_t1, y_t0)
         test_scores[train_experiment, :] = test_score
