@@ -1,7 +1,7 @@
 # Analysis of Counterfactuals with Statistical Inference System
 Master Thesis for the Double Degree Master Program “Software Engineering” at FH Technikum Wien, Austria.
 
-<img src="https://github.com/j1nma/counterfactuals/blob/master/docs/images/table.png?raw=true" width="400"/>  <img src="https://github.com/j1nma/counterfactuals/blob/master/docs/images/tsne.png?raw=true" width="500"/>
+<img src="https://github.com/j1nma/counterfactuals/blob/master/docs/images/table.png?raw=true" width="400"/>  <img src="https://github.com/j1nma/counterfactuals/blob/master/docs/images/tsne.png?raw=true" width="320" height="325"/>
 
 
 ## About
