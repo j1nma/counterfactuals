@@ -1,6 +1,9 @@
 # Analysis of Counterfactuals with Statistical Inference System
 Master Thesis for the Double Degree Master Program “Software Engineering” at FH Technikum Wien, Austria.
 
+<img src="https://github.com/j1nma/counterfactuals/blob/master/docs/images/table.png?raw=true" width="400"/>  <img src="https://github.com/j1nma/counterfactuals/blob/master/docs/images/tsne.png?raw=true" width="500"/>
+
+
 ## About
 In recent years, causal inference has changed the direction of statisticians by providing mathematical tools when translating assumptions in data to estimable causal parameters. These tools have shown extensive social and biomedical pertinence for studying how much change a variable causes in another. 
 
